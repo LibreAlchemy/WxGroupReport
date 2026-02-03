@@ -1,0 +1,19 @@
+# Chat Data
+group/
+
+# Sensitive & Privacy Files
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+*.crt
+config.local.*
+credentials.*
+
+# Database Files
+*.db
+*.sqlite
+*.sqlite3
+*.mdb
+*.accdb
