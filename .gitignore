@@ -17,3 +17,4 @@ credentials.*
 *.sqlite3
 *.mdb
 *.accdb
+.kiro/
