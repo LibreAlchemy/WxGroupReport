@@ -3,6 +3,13 @@ group/
 data/
 output/
 
+# Local Data & Outputs (privacy)
+# Keep directories tracked via .gitkeep
+data/*
+output/*
+!data/.gitkeep
+!output/.gitkeep
+
 # Sensitive & Privacy Files
 .env
 .env.local
@@ -21,28 +28,22 @@ credentials.*
 *.accdb
 .kiro/
 
-# Python
+# Python 相关忽略规则
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
+*.py[cod]
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
 *.egg-info/
 
-# Virtual Environments
+# 虚拟环境与包管理
 .venv/
 venv/
 env/
-
-# UV
 uv.lock
 pyproject.toml
 .python-version
 
-# Logs
+# 日志与 AI 标识
 *.log
-
-# AI Identity Related
 AGENTS.md
