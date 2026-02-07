@@ -8,10 +8,12 @@
 2. 过滤无效消息（系统消息、动画表情等）
 3. 按成员拆分消息
 4. 生成主文件和成员单独文件
+5. 可选提取系统消息中的入群时间
 """
 
 import dataclasses
 import json
+import re
 import os
 import sys
 import uuid
@@ -38,12 +40,9 @@ class ParsedMessage:
     """解析后的消息"""
 
     id: str
-    wxid: str
-    nickname: str
     timestamp: str
     msg_type: int
     content: str
-    is_system_message: bool
 
 
 @dataclass
@@ -53,6 +52,7 @@ class ProcessedMember:
     wxid: str
     nickname: str
     avatar: str
+    join_time: Optional[str]
     message_count: int
     messages: List[ParsedMessage]
 
@@ -104,11 +104,6 @@ def is_valid_message(msg_type: int, include_media: bool = False) -> bool:
     return msg_type in VALID_MSG_TYPES
 
 
-def is_system_message(msg_type: int) -> bool:
-    """判断是否为系统消息"""
-    return msg_type in SYSTEM_MSG_TYPES
-
-
 def build_member_mapping(members: List[Dict], group_id: str = "") -> Dict[str, Dict]:
     """从成员列表构建 wxid → member_info 映射"""
     mapping = {}
@@ -123,6 +118,34 @@ def build_member_mapping(members: List[Dict], group_id: str = "") -> Dict[str, D
             "avatar": member.get("avatar", ""),
         }
     return mapping
+
+
+def extract_join_times(messages: List[Dict]) -> Dict[str, int]:
+    """从系统消息提取入群时间（按昵称映射）"""
+    result: Dict[str, int] = {}
+
+    for msg in messages:
+        msg_type = int(msg.get("type", -1))
+        if msg_type not in SYSTEM_MSG_TYPES:
+            continue
+
+        content = clean_content(msg.get("content"))
+        if "加入群聊" not in content:
+            continue
+
+        matches = re.findall(r"\"([^\"]+)\"", content)
+        if not matches:
+            continue
+
+        joiner = matches[0].strip()
+        if not joiner:
+            continue
+
+        timestamp = int(msg.get("timestamp", 0))
+        if joiner not in result or timestamp < result[joiner]:
+            result[joiner] = timestamp
+
+    return result
 
 
 def filter_and_parse_messages(
@@ -157,12 +180,9 @@ def filter_and_parse_messages(
 
         parsed_msg = ParsedMessage(
             id=generate_message_id(sender_id, msg.get("timestamp", 0)),
-            wxid=sender_id,
-            nickname=member_mapping[sender_id]["accountName"],
             timestamp=parse_timestamp(msg.get("timestamp", 0)),
             msg_type=msg_type,
             content=clean_content(msg.get("content")),
-            is_system_message=is_system_message(msg_type),
         )
 
         if sender_id not in result:
@@ -175,6 +195,7 @@ def filter_and_parse_messages(
 def aggregate_member_data(
     member_mapping: Dict[str, Dict],
     messages_by_member: Dict[str, List[ParsedMessage]],
+    join_times_by_nickname: Dict[str, int],
     show_progress: bool = True,
 ) -> Dict[str, ProcessedMember]:
     """聚合成员数据"""
@@ -187,11 +208,13 @@ def aggregate_member_data(
     for wxid, member_info in iterator:
         messages = messages_by_member.get(wxid, [])
         sorted_messages = sorted(messages, key=lambda m: m.timestamp)
+        join_timestamp = join_times_by_nickname.get(member_info["accountName"])
 
         result[wxid] = ProcessedMember(
             wxid=wxid,
             nickname=member_info["accountName"],
             avatar=member_info["avatar"],
+            join_time=parse_timestamp(join_timestamp) if join_timestamp else None,
             message_count=len(messages),
             messages=sorted_messages,
         )
@@ -260,6 +283,7 @@ def preprocess_chat_data(
     input_path: str,
     output_dir: str = "output",
     include_media: bool = False,
+    include_join_time: bool = True,
     save_individual: bool = True,
 ) -> Tuple[ProcessedData, Dict[str, Any]]:
     """
@@ -283,13 +307,17 @@ def preprocess_chat_data(
     )
 
     member_mapping = build_member_mapping(members, group_info.group_id)
+    join_times_by_nickname = extract_join_times(messages) if include_join_time else {}
 
     messages_by_member, filtered_count = filter_and_parse_messages(
         messages, member_mapping, include_media=include_media, show_progress=True
     )
 
     processed_members = aggregate_member_data(
-        member_mapping, messages_by_member, show_progress=True
+        member_mapping,
+        messages_by_member,
+        join_times_by_nickname,
+        show_progress=True,
     )
 
     statistics = calculate_statistics(messages, member_mapping, filtered_count)
@@ -325,12 +353,14 @@ def load_config_from_env() -> Dict[str, Any]:
 
     output_dir = os.getenv("OUTPUT_DIR", "output")
     include_media = parse_bool(os.getenv("INCLUDE_MEDIA"), default=False)
+    include_join_time = parse_bool(os.getenv("INCLUDE_JOIN_TIME"), default=True)
     save_individual = not parse_bool(os.getenv("NO_INDIVIDUAL"), default=False)
 
     return {
         "input_path": input_path,
         "output_dir": output_dir,
         "include_media": include_media,
+        "include_join_time": include_join_time,
         "save_individual": save_individual,
     }
 
@@ -347,6 +377,7 @@ def main():
             config["input_path"],
             config["output_dir"],
             config["include_media"],
+            include_join_time=config["include_join_time"],
             save_individual=config["save_individual"],
         )
 
