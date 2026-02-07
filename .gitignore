@@ -1,6 +1,13 @@
 # Chat Data
 group/
 
+# Local Data & Outputs (privacy)
+# Keep directories tracked via .gitkeep
+data/*
+output/*
+!data/.gitkeep
+!output/.gitkeep
+
 # Sensitive & Privacy Files
 .env
 .env.local
@@ -18,3 +25,9 @@ credentials.*
 *.mdb
 *.accdb
 .kiro/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
