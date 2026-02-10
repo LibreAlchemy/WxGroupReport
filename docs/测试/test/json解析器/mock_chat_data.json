@@ -1,0 +1,63 @@
+{
+  "chatlab": {
+    "version": "0.0.2",
+    "exportedAt": 1707000000,
+    "generator": "WeFlow"
+  },
+  "meta": {
+    "name": "测试群聊",
+    "platform": "wechat",
+    "type": "group",
+    "groupId": "123456789@chatroom",
+    "groupAvatar": "http://example.com/avatar.jpg"
+  },
+  "members": [
+    {
+      "platformId": "user_01",
+      "accountName": "张三",
+      "avatar": "http://example.com/zhangsan.jpg"
+    },
+    {
+      "platformId": "user_02",
+      "accountName": "李四",
+      "avatar": "http://example.com/lisi.jpg"
+    }
+  ],
+  "messages": [
+    {
+      "sender": "system",
+      "accountName": "系统",
+      "timestamp": 1707000000,
+      "type": 80,
+      "content": "\"李四\"加入群聊"
+    },
+    {
+      "sender": "user_01",
+      "accountName": "张三",
+      "timestamp": 1707000001,
+      "type": 0,
+      "content": "大家好，这是第一条有效消息"
+    },
+    {
+      "sender": "user_02",
+      "accountName": "李四",
+      "timestamp": 1707000002,
+      "type": 5,
+      "content": "动画表情消息"
+    },
+    {
+      "sender": "user_01",
+      "accountName": "张三",
+      "timestamp": 1707000003,
+      "type": 1,
+      "content": "图片消息"
+    },
+    {
+      "sender": "user_02",
+      "accountName": "李四",
+      "timestamp": 1707000004,
+      "type": 0,
+      "content": "回复张三的消息"
+    }
+  ]
+}

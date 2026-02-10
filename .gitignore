@@ -43,7 +43,11 @@ env/
 uv.lock
 pyproject.toml
 .python-version
+requirements.txt
 
 # 日志与 AI 标识
 *.log
 AGENTS.md
+
+#测试
+# test/
