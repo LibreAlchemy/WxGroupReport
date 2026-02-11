@@ -98,7 +98,7 @@ def clean_content(content: Optional[str]) -> str:
 def is_valid_message(msg_type: int, include_media: bool = False) -> bool:
     """判断消息类型是否有效"""
     if msg_type in SYSTEM_MSG_TYPES or msg_type in LOW_QUALITY_TYPES:
-        return False
+        return True
     if msg_type in MEDIA_TYPES and not include_media:
         return False
     return msg_type in VALID_MSG_TYPES
