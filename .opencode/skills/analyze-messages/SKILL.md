@@ -30,16 +30,12 @@ description: Use when scoring processed WeChat member messages, extracting highl
 
 ```ts
 interface AnalyzeInput {
-  membersPath?: string;        // members 目录路径，默认 output/members/
-  whitelist?: string[];        // 白名单成员列表
   config?: {
-    apiProvider?: "google";     // API 提供商
     model?: string;            // 模型名称，默认 gemini-2.0-flash
     batchSize?: number;        // 每批消息数，默认 100
-    maxWorkers?: number;       // 并行任务数，默认 5
+    maxWorkers?: number;        // 并行任务数，默认 5
     lowQualityThreshold?: number; // 低质判定阈值，默认 60
     minMessageCount?: number;  // 低频次阈值，默认 5
-    outputPath?: string;       // 输出文件路径
   };
 }
 ```
@@ -178,38 +174,40 @@ interface MemberScore {
 ```
 .opencode/skills/analyze-messages/
 ├── SKILL.md                 # 本文件
-├── scripts/
-│   ├── __init__.py
-│   ├── api_client.py        # Gemini API 调用
-│   ├── batcher.py          # 负载均衡分批
-│   └── analyze.py          # 主分析脚本
-└── tests/
-    └── test_analyze.py
+└── scripts/
+    ├── __init__.py
+    ├── api_client.py        # Gemini API 调用
+    ├── batcher.py          # 负载均衡分批
+    └── analyze.py          # 主分析脚本
 ```
 
 ## 使用方式
 
-运行脚本进行消息分析：
+### 配置 (.env)
 
-```bash
-python scripts/analyze.py --members ./output/members --whitelist ./whitelist.txt --output ./output/analyze-messages.json
-```
+从 `.env` 读取以下配置：
 
-或通过 Python 代码调用：
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| OUTPUT_DIR | ./output | 输出目录 |
+| MODEL | gemini-2.0-flash | Gemini 模型名称 |
+| GOOGLE_API_KEY | - | Google API 密钥 |
+
+### 执行
 
 ```python
 from analyze import run_analysis
 
-result = run_analysis(
-    members_path="./output/members",
-    whitelist_path="./whitelist.txt",
-    output_path="./output/analyze-messages.json",
-    config={
-        "model": "gemini-2.0-flash",
-        "batchSize": 100,
-        "maxWorkers": 5,
-        "lowQualityThreshold": 60,
-        "minMessageCount": 5
-    }
-)
+result = run_analysis(config={
+    "model": "gemini-2.0-flash",
+    "batchSize": 100,
+    "maxWorkers": 5,
+    "lowQualityThreshold": 60,
+    "minMessageCount": 5
+})
 ```
+
+### 输出
+
+- 输入：`{OUTPUT_DIR}/members/*.json`
+- 输出：`{OUTPUT_DIR}/scores/analyze-messages.json`

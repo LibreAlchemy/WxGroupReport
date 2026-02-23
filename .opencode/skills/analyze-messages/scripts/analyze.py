@@ -1,15 +1,21 @@
 """
 消息分析主脚本
+从 .env 读取配置
 """
 
 import asyncio
 import json
 import os
-import sys
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Dict, List, Any, Optional
-from dataclasses import asdict
+
+from dotenv import load_dotenv
+
+load_dotenv()
+
+OUTPUT_DIR = os.getenv("OUTPUT_DIR", "./output")
+MEMBERS_DIR = os.path.join(OUTPUT_DIR, "members")
+SCORES_DIR = os.path.join(OUTPUT_DIR, "scores")
 
 from api_client import GeminiClient
 from batcher import balance_members, split_member_messages
@@ -31,25 +37,6 @@ def load_members(members_path: str) -> List[Dict[str, Any]]:
             print(f"Warning: Skip invalid file {file_path}: {e}")
 
     return members
-
-
-def load_whitelist(whitelist_path: Optional[str]) -> List[str]:
-    """加载白名单"""
-    if not whitelist_path:
-        return []
-
-    whitelist = []
-    path = Path(whitelist_path)
-    if path.exists():
-        for line in path.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if line and not line.startswith("#"):
-                whitelist.append(line)
-    return whitelist
-
-
-def is_whitelisted(nickname: str, whitelist: List[str]) -> bool:
-    return nickname in whitelist
 
 
 async def analyze_member(
@@ -102,7 +89,6 @@ async def analyze_parallel(
         api_key=config.get("apiKey"), model=config.get("model", "gemini-2.0-flash")
     )
 
-    all_results = []
     member_batches = []
 
     for member in members:
@@ -150,7 +136,7 @@ async def analyze_parallel(
 
 
 def determine_low_quality(
-    members: List[Dict[str, Any]], whitelist: List[str], config: Dict[str, Any]
+    members: List[Dict[str, Any]], config: Dict[str, Any]
 ) -> List[Dict[str, Any]]:
     """判定低质成员"""
     threshold = config.get("lowQualityThreshold", 60)
@@ -159,11 +145,6 @@ def determine_low_quality(
     low_quality = []
 
     for member in members:
-        if is_whitelisted(member.get("nickname", ""), whitelist):
-            continue
-
-        status = member.get("status", "normal")
-
         if member["messageCount"] == 0:
             low_quality.append(
                 {
@@ -205,22 +186,13 @@ def determine_low_quality(
     return sorted(low_quality, key=lambda x: severity_order[x["severity"]])
 
 
-def run_analysis(
-    members_path: str,
-    whitelist_path: Optional[str] = None,
-    output_path: Optional[str] = None,
-    config: Optional[Dict] = None,
-):
+def run_analysis(config: Optional[Dict] = None) -> Dict:
     """运行分析主流程"""
     config = config or {}
 
-    members = load_members(members_path)
-    whitelist = load_whitelist(whitelist_path)
+    members = load_members(MEMBERS_DIR)
 
     results = asyncio.run(analyze_parallel(members, config))
-
-    for member in results:
-        member["isWhitelisted"] = is_whitelisted(member.get("nickname", ""), whitelist)
 
     highlights = []
     for member in results:
@@ -228,7 +200,7 @@ def run_analysis(
             hl["author"] = member["nickname"]
             highlights.append(hl)
 
-    low_quality = determine_low_quality(results, whitelist, config)
+    low_quality = determine_low_quality(results, config)
 
     output = {
         "success": True,
@@ -246,39 +218,10 @@ def run_analysis(
         },
     }
 
-    if output_path:
-        Path(output_path).write_text(
-            json.dumps(output, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
+    Path(SCORES_DIR).mkdir(parents=True, exist_ok=True)
+    output_file = os.path.join(SCORES_DIR, "analyze-messages.json")
+    Path(output_file).write_text(
+        json.dumps(output, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
 
     return output
-
-
-if __name__ == "__main__":
-    import argparse
-
-    parser = argparse.ArgumentParser(description="Analyze WeChat group messages")
-    parser.add_argument(
-        "--members", default="./output/members", help="Members directory path"
-    )
-    parser.add_argument("--whitelist", help="Whitelist file path")
-    parser.add_argument(
-        "--output", default="./output/analyze-messages.json", help="Output file path"
-    )
-    parser.add_argument(
-        "--workers", type=int, default=5, help="Number of parallel workers"
-    )
-    parser.add_argument(
-        "--batch-size", type=int, default=100, help="Messages per batch"
-    )
-
-    args = parser.parse_args()
-
-    config = {
-        "maxWorkers": args.workers,
-        "batchSize": args.batch_size,
-        "model": os.getenv("MODEL", "gemini-2.0-flash"),
-        "apiKey": os.getenv("GOOGLE_API_KEY") or os.getenv("API_KEY"),
-    }
-
-    run_analysis(args.members, args.whitelist, args.output, config)
