@@ -381,13 +381,13 @@ def main():
             save_individual=config["save_individual"],
         )
 
-        print(f"\n✅ 处理完成！")
-        print(f"📊 总成员数: {result.statistics['totalMembers']}")
-        print(f"💬 有效消息: {result.statistics['validMessages']}")
-        print(f"🗑️  过滤消息: {result.statistics['filteredMessages']}")
-        print(f"📁 主文件: {output_files['main']}")
+        print("\n处理完成")
+        print(f"总成员数: {result.statistics['totalMembers']}")
+        print(f"有效消息: {result.statistics['validMessages']}")
+        print(f"过滤消息: {result.statistics['filteredMessages']}")
+        print(f"主文件: {output_files['main']}")
         if output_files["members"]:
-            print(f"👥 成员文件: {len(output_files['members'])} 个 (output/members/)")
+            print(f"成员文件: {len(output_files['members'])} 个 (output/members/)")
 
         return 0
     except FileNotFoundError as e:
