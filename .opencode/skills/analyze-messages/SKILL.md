@@ -180,34 +180,3 @@ interface MemberScore {
     ├── batcher.py          # 负载均衡分批
     └── analyze.py          # 主分析脚本
 ```
-
-## 使用方式
-
-### 配置 (.env)
-
-从 `.env` 读取以下配置：
-
-| 变量 | 默认值 | 说明 |
-|------|--------|------|
-| OUTPUT_DIR | ./output | 输出目录 |
-| MODEL | gemini-2.0-flash | Gemini 模型名称 |
-| GOOGLE_API_KEY | - | Google API 密钥 |
-
-### 执行
-
-```python
-from analyze import run_analysis
-
-result = run_analysis(config={
-    "model": "gemini-2.0-flash",
-    "batchSize": 100,
-    "maxWorkers": 5,
-    "lowQualityThreshold": 60,
-    "minMessageCount": 5
-})
-```
-
-### 输出
-
-- 输入：`{OUTPUT_DIR}/members/*.json`
-- 输出：`{OUTPUT_DIR}/scores/analyze-messages.json`

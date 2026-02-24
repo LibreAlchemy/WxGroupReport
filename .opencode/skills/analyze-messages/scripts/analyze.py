@@ -1,227 +1,183 @@
 """
-消息分析主脚本
-从 .env 读取配置
+消息分析脚本
+批量并行处理：从 output/members/ 读取，调用 Gemini 评分，输出到 output/scores/
 """
 
 import asyncio
 import json
 import os
+import sys
+import glob
 from pathlib import Path
-from typing import Dict, List, Any, Optional
-
 from dotenv import load_dotenv
+
+# 修复 Windows 控制台编码
+if sys.platform == "win32":
+    import codecs
+
+    sys.stdout = codecs.getwriter("utf-8")(sys.stdout.buffer, "strict")
+    sys.stderr = codecs.getwriter("utf-8")(sys.stderr.buffer, "strict")
 
 load_dotenv()
 
 OUTPUT_DIR = os.getenv("OUTPUT_DIR", "./output")
 MEMBERS_DIR = os.path.join(OUTPUT_DIR, "members")
 SCORES_DIR = os.path.join(OUTPUT_DIR, "scores")
+MODEL = os.getenv("MODEL", "gemini-2.0-flash")
+API_KEY = os.getenv("GOOGLE_API_KEY")
+MAX_WORKERS = 10  # 并发数
 
-from api_client import GeminiClient
-from batcher import balance_members, split_member_messages
+GEMINI_API_URL = (
+    f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL}:generateContent"
+)
 
 
-def load_members(members_path: str) -> List[Dict[str, Any]]:
-    """从目录加载成员消息"""
-    members_dir = Path(members_path)
-    if not members_dir.exists():
-        raise FileNotFoundError(f"Members directory not found: {members_path}")
+async def call_gemini(prompt: str, retries=3) -> dict:
+    """调用 Gemini API"""
+    import aiohttp
+    import re
 
-    members = []
-    for file_path in members_dir.glob("*.json"):
+    url = f"{GEMINI_API_URL}?key={API_KEY}"
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {"temperature": 0.3, "maxOutputTokens": 8192},
+    }
+
+    proxy = os.getenv("HTTP_PROXY") or os.getenv("HTTPS_PROXY")
+
+    for attempt in range(retries):
         try:
-            data = json.loads(file_path.read_text(encoding="utf-8"))
-            if data.get("messages"):
-                members.append(data)
-        except (json.JSONDecodeError, KeyError) as e:
-            print(f"Warning: Skip invalid file {file_path}: {e}")
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, json=payload, proxy=proxy) as response:
+                    if response.status != 200:
+                        error = await response.text()
+                        raise RuntimeError(f"API error: {response.status}")
+                    result = await response.json()
+                    text = result["candidates"][0]["content"]["parts"][0]["text"]
 
-    return members
+                    text = text.strip()
+                    if text.startswith("```"):
+                        text = re.sub(r"^```[a-z]*\n?", "", text)
+                        text = re.sub(r"\n?```$", "", text)
 
-
-async def analyze_member(
-    client: GeminiClient, member: Dict[str, Any]
-) -> Dict[str, Any]:
-    """分析单个成员的消息"""
-    wxid = member["wxid"]
-    nickname = member.get("nickname", wxid)
-    messages = member.get("messages", [])
-
-    if not messages:
-        return {
-            "wxid": wxid,
-            "nickname": nickname,
-            "messageCount": 0,
-            "totalScore": 0,
-            "averageScore": 0,
-            "summary": "无消息",
-            "scores": [],
-            "highlights": [],
-            "status": "zero_activity",
-        }
-
-    result = await client.score_messages(wxid, nickname, messages)
-
-    total_score = sum(s.get("total_score", 0) for s in result.scores)
-    avg_score = total_score / len(result.scores) if result.scores else 0
-
-    return {
-        "wxid": wxid,
-        "nickname": nickname,
-        "messageCount": len(messages),
-        "totalScore": total_score,
-        "averageScore": round(avg_score, 2),
-        "summary": result.summary,
-        "scores": result.scores,
-        "highlights": result.highlights,
-        "status": "normal",
-    }
+                    match = re.search(r"\{[\s\S]*\}", text)
+                    if match:
+                        return json.loads(match.group())
+                    raise ValueError(f"Cannot parse JSON")
+        except Exception as e:
+            if attempt < retries - 1:
+                await asyncio.sleep(1)
+                continue
+            raise
 
 
-async def analyze_parallel(
-    members: List[Dict[str, Any]], config: Dict[str, Any]
-) -> List[Dict[str, Any]]:
-    """并行分析成员消息"""
-    max_workers = config.get("maxWorkers", 5)
-    batch_size = config.get("batchSize", 100)
-
-    client = GeminiClient(
-        api_key=config.get("apiKey"), model=config.get("model", "gemini-2.0-flash")
+def build_prompt(wxid: str, nickname: str, messages: list) -> str:
+    """构建评分 prompt"""
+    msgs_text = "\n".join(
+        [f"{i}. {m.get('content', '')}" for i, m in enumerate(messages)]
     )
 
-    member_batches = []
+    return f"""## 任务
+分析以下群成员的消息，给出总结和评分。
 
-    for member in members:
-        batches = split_member_messages(member, batch_size)
-        member_batches.extend(batches)
+## 成员: {nickname} ({len(messages)}条消息)
 
-    buckets = balance_members(member_batches, num_buckets=max_workers)
+## 消息
+{msgs_text}
 
-    async def process_bucket(bucket):
-        results = []
-        for batch in bucket:
-            result = await analyze_member(client, batch)
-            results.append(result)
-        return results
-
-    tasks = [process_bucket(bucket) for bucket in buckets]
-    bucket_results = await asyncio.gather(*tasks)
-
-    member_results = {}
-    for bucket_result in bucket_results:
-        for result in bucket_result:
-            wxid = result["wxid"]
-            if wxid not in member_results:
-                member_results[wxid] = {
-                    "wxid": result["wxid"],
-                    "nickname": result["nickname"],
-                    "messageCount": 0,
-                    "totalScore": 0,
-                    "summary": "",
-                    "highlights": [],
-                }
-            member_results[wxid]["messageCount"] += result["messageCount"]
-            member_results[wxid]["totalScore"] += result["totalScore"]
-            member_results[wxid]["summary"] = result["summary"]
-            member_results[wxid]["highlights"].extend(result.get("highlights", []))
-
-    for wxid, data in member_results.items():
-        if data["messageCount"] > 0:
-            data["averageScore"] = round(data["totalScore"] / data["messageCount"], 2)
-        else:
-            data["averageScore"] = 0
-            data["status"] = "zero_activity"
-
-    return list(member_results.values())
+## 输出格式 (JSON)
+{{
+  "summary": "总结（30-100字）",
+  "stats": {{", "resource": 0, "technical": 0qa": 0, "discussion": 0, "insight": 0, "opportunity": 0, "reply": 0}},
+  "highlights": [{{"type": "article|github|insight|opportunity", "content": "", "url": ""}}]
+}}
+只返回JSON。"""
 
 
-def determine_low_quality(
-    members: List[Dict[str, Any]], config: Dict[str, Any]
-) -> List[Dict[str, Any]]:
-    """判定低质成员"""
-    threshold = config.get("lowQualityThreshold", 60)
-    min_count = config.get("minMessageCount", 5)
+async def analyze_member(sem, wxid: str, nickname: str, messages: list) -> dict:
+    """分析单个成员"""
+    async with sem:
+        if not messages:
+            return {
+                "wxid": wxid,
+                "nickname": nickname,
+                "messageCount": 0,
+                "totalScore": 0,
+                "averageScore": 0,
+                "summary": "无消息",
+                "stats": {},
+                "highlights": [],
+                "status": "zero_activity",
+            }
 
-    low_quality = []
+        try:
+            prompt = build_prompt(wxid, nickname, messages)
+            result = await call_gemini(prompt)
+            stats = result.get("stats", {})
+            total = sum(stats.values()) if stats else 0
+            avg = total / len(messages) if messages else 0
 
-    for member in members:
-        if member["messageCount"] == 0:
-            low_quality.append(
-                {
-                    "wxid": member["wxid"],
-                    "nickname": member["nickname"],
-                    "messageCount": member["messageCount"],
-                    "averageScore": member["averageScore"],
-                    "status": "zero_activity",
-                    "severity": "high",
-                    "reason": "周期内无任何有效消息",
-                }
-            )
-        elif member["averageScore"] < threshold:
-            low_quality.append(
-                {
-                    "wxid": member["wxid"],
-                    "nickname": member["nickname"],
-                    "messageCount": member["messageCount"],
-                    "averageScore": member["averageScore"],
-                    "status": "low_quality",
-                    "severity": "medium",
-                    "reason": f"平均分 {member['averageScore']} < {threshold}",
-                }
-            )
-        elif member["messageCount"] < min_count:
-            low_quality.append(
-                {
-                    "wxid": member["wxid"],
-                    "nickname": member["nickname"],
-                    "messageCount": member["messageCount"],
-                    "averageScore": member["averageScore"],
-                    "status": "low_frequency",
-                    "severity": "low",
-                    "reason": f"发言数 {member['messageCount']} < {min_count}",
-                }
-            )
-
-    severity_order = {"high": 0, "medium": 1, "low": 2}
-    return sorted(low_quality, key=lambda x: severity_order[x["severity"]])
+            return {
+                "wxid": wxid,
+                "nickname": nickname,
+                "messageCount": len(messages),
+                "totalScore": total,
+                "averageScore": round(avg, 2),
+                "summary": result.get("summary", ""),
+                "stats": stats,
+                "highlights": result.get("highlights", []),
+                "status": "normal",
+            }
+        except Exception as e:
+            return {
+                "wxid": wxid,
+                "nickname": nickname,
+                "messageCount": len(messages),
+                "totalScore": 0,
+                "averageScore": 0,
+                "summary": "",
+                "stats": {},
+                "highlights": [],
+                "status": "error",
+                "error": str(e),
+            }
 
 
-def run_analysis(config: Optional[Dict] = None) -> Dict:
-    """运行分析主流程"""
-    config = config or {}
-
-    members = load_members(MEMBERS_DIR)
-
-    results = asyncio.run(analyze_parallel(members, config))
-
-    highlights = []
-    for member in results:
-        for hl in member.get("highlights", []):
-            hl["author"] = member["nickname"]
-            highlights.append(hl)
-
-    low_quality = determine_low_quality(results, config)
-
-    output = {
-        "success": True,
-        "data": {
-            "memberScores": results,
-            "highlights": highlights,
-            "lowQualityMembers": low_quality,
-            "summary": {
-                "totalMembers": len(members),
-                "analyzedMembers": len(results),
-                "totalMessages": sum(m["messageCount"] for m in results),
-                "highlightsCount": len(highlights),
-                "lowQualityCount": len(low_quality),
-            },
-        },
-    }
-
+async def main():
+    """主流程 - 并行处理"""
     Path(SCORES_DIR).mkdir(parents=True, exist_ok=True)
-    output_file = os.path.join(SCORES_DIR, "analyze-messages.json")
-    Path(output_file).write_text(
-        json.dumps(output, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
 
-    return output
+    # 加载所有成员
+    members = []
+    for filepath in glob.glob(os.path.join(MEMBERS_DIR, "*.json")):
+        with open(filepath, encoding="utf-8") as f:
+            data = json.load(f)
+        wxid = data.get("wxid", Path(filepath).stem)
+        nickname = data.get("nickname", wxid)
+        messages = data.get("messages", [])
+        members.append((wxid, nickname, messages))
+
+    print(f"找到 {len(members)} 个成员，并行处理...")
+
+    # 并行分析
+    sem = asyncio.Semaphore(MAX_WORKERS)
+    tasks = [analyze_member(sem, wxid, nick, msgs) for wxid, nick, msgs in members]
+    results = await asyncio.gather(*tasks)
+
+    # 保存结果
+    for result in results:
+        output_file = os.path.join(SCORES_DIR, f"{result['wxid']}.json")
+        with open(output_file, "w", encoding="utf-8") as f:
+            json.dump(result, f, ensure_ascii=False, indent=2)
+
+    # 统计
+    total_msgs = sum(r["messageCount"] for r in results)
+    total_hl = sum(len(r.get("highlights", [])) for r in results)
+
+    print(f"\n完成！")
+    print(f"成员: {len(results)}, 消息: {total_msgs}, 高亮: {total_hl}")
+    print(f"输出: {SCORES_DIR}")
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
