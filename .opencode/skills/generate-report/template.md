@@ -27,37 +27,31 @@
 | - | 暂无 | 0 | 0.0 |
 {%- endfor %}
 
----
-
 ## 本期精彩内容
-
+{% if articles %}
 ### 公众号/技术文章
-{%- for item in articles %}
-- [{{ item.title }}]({{ item.url }}) @{{ item.author | replace("|", "\\|") }}
-{%- else %}
-- 暂无
+{%- for item in articles[:3] %}
+- [{{ item.content[:50] }}]({{ item.url }}) @{{ item.author | replace("|", "\\|") }}
 {%- endfor %}
-
+{% endif %}
+{% if github_items %}
 ### Github 项目
-{%- for item in github_items %}
-- [{{ item.repo }}]({{ item.url }}) @{{ item.author | replace("|", "\\|") }}
-{%- else %}
-- 暂无
+{%- for item in github_items[:3] %}
+- [{{ item.content[:50] }}]({{ item.url }}) @{{ item.author | replace("|", "\\|") }}
 {%- endfor %}
-
+{% endif %}
+{% if insights %}
 ### 原创见解
-{%- for item in insights %}
-- "{{ item.content }}" — @{{ item.author | replace("|", "\\|") }}
-{%- else %}
-- 暂无
+{%- for item in insights[:3] %}
+- "{{ item.content[:80] }}" — @{{ item.author | replace("|", "\\|") }}
 {%- endfor %}
-
+{% endif %}
+{% if opportunities %}
 ### 机会分享
-{%- for item in opportunities %}
-- {{ item.summary }} — @{{ item.author | replace("|", "\\|") }}
-{%- else %}
-- 暂无
+{%- for item in opportunities[:3] %}
+- {{ item.content[:80] }} — @{{ item.author | replace("|", "\\|") }}
 {%- endfor %}
+{% endif %}
 
 ---
 
@@ -68,7 +62,6 @@
 - **发言数**: {{ member.msg_count }}
 - **平均分**: {{ "%.1f"|format(member.avg_score) }}
 - **原因**: {{ member.reason }}
-- **严重程度**: {{ member.severity_label }}
 
 ---
 {%- else %}
@@ -77,10 +70,21 @@
 
 ## 附录
 
+### 评分维度 (7维度，各1-5分)
+| 维度 | 说明 |
+|------|------|
+| technical | 技术分享 |
+| resource | 资源分享 |
+| qa | 解答问题 |
+| discussion | 深度讨论 |
+| insight | 原创观点 |
+| opportunity | 机会分享 |
+| reply | 互动回复 |
+
 ### 低质判定规则
-- **零发言**: 周期内无任何有效消息
-- **低质量**: 平均分 < 60 分
-- **低频次**: 发言数 < 5 条
+- **零发言**: 周期内无任何有效消息 (严重)
+- **低质量**: 平均分 < 15 分 (中等)
+- **低频次**: 发言数 < 5 条 (轻微)
 
 ---
 *报告由群聊分析工具自动生成*

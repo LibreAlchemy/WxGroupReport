@@ -1,9 +1,10 @@
 import json
 import os
+import importlib
+import subprocess
+import sys
 from datetime import datetime
 from pathlib import Path
-
-import jinja2
 
 
 def load_json(path: Path):
@@ -40,13 +41,21 @@ def to_report_context(processed, analysis, config):
         for m in sorted_members[:10]
     ]
 
+    best_by_type = {}
+    for item in highlights:
+        item_type = item.get("type")
+        if item_type in best_by_type:
+            continue
+        if item_type not in {"article", "github", "insight", "opportunity"}:
+            continue
+        best_by_type[item_type] = item
+
     articles = []
     github_items = []
     insights = []
     opportunities = []
 
-    for item in highlights:
-        item_type = item.get("type")
+    for item_type, item in best_by_type.items():
         author = ensure_table_safe(item.get("author") or "")
         if item_type == "article":
             url = item.get("url") or ""
@@ -115,21 +124,60 @@ def to_report_context(processed, analysis, config):
     }
 
 
-def render_report(template_path: Path, context):
+def ensure_jinja2(requirements_path: Path):
+    try:
+        return importlib.import_module("jinja2")
+    except ImportError:
+        if not requirements_path.exists():
+            raise SystemExit(f"missing requirements file: {requirements_path}")
+        command = [sys.executable, "-m", "pip", "install", "-r", str(requirements_path)]
+        try:
+            subprocess.check_call(command)
+        except Exception as exc:
+            raise SystemExit(
+                "failed to install dependencies for generate-report"
+            ) from exc
+        try:
+            return importlib.import_module("jinja2")
+        except ImportError as exc:
+            raise SystemExit("jinja2 is still missing after install") from exc
+
+
+def render_report(template_path: Path, context, jinja2_module):
     with template_path.open("r", encoding="utf-8") as handle:
         template_text = handle.read()
-    env = jinja2.Environment(autoescape=False)
+    env = jinja2_module.Environment(autoescape=False)
     template = env.from_string(template_text)
     return template.render(**context)
 
 
+def select_latest_processed(output_dir: Path) -> Path:
+    candidates = list(output_dir.glob("*_processed.json"))
+    if not candidates:
+        raise SystemExit(f"missing processed file in {output_dir}")
+    return max(candidates, key=lambda path: path.stat().st_mtime)
+
+
 def main():
-    processed_path = Path(os.getenv("PROCESSED_PATH", "output/麦田怪圈_processed.json"))
-    analysis_path = Path(os.getenv("ANALYSIS_PATH", "output/analyze-messages.json"))
-    template_path = Path(
-        os.getenv("TEMPLATE_PATH", ".opencode/skills/generate-report/template.md")
+    output_dir_env = os.getenv("OUTPUT_DIR", "output")
+    template_path_env = os.getenv(
+        "TEMPLATE_PATH", ".opencode/skills/generate-report/template.md"
     )
-    output_path = Path(os.getenv("OUTPUT_PATH", "output/report.md"))
+    output_path_env = os.getenv("OUTPUT_PATH")
+    requirements_path_env = os.getenv(
+        "REQUIREMENTS_PATH", ".opencode/skills/generate-report/requirements.txt"
+    )
+
+    assert output_dir_env is not None
+    assert template_path_env is not None
+    assert requirements_path_env is not None
+
+    output_dir = Path(output_dir_env)
+    processed_path = select_latest_processed(output_dir)
+    analysis_path = output_dir / "analyze-messages.json"
+    template_path = Path(template_path_env)
+    output_path = Path(output_path_env) if output_path_env else output_dir / "report.md"
+    requirements_path = Path(requirements_path_env)
 
     config = {
         "period": {
@@ -141,8 +189,6 @@ def main():
     if not config["period"]["start"] and not config["period"]["end"]:
         config["period"] = None
 
-    if not processed_path.exists():
-        raise SystemExit(f"missing processed file: {processed_path}")
     if not analysis_path.exists():
         raise SystemExit(f"missing analysis file: {analysis_path}")
     if not template_path.exists():
@@ -152,7 +198,8 @@ def main():
     analysis = load_json(analysis_path)
 
     context = to_report_context(processed, analysis, config)
-    rendered = render_report(template_path, context)
+    jinja2_module = ensure_jinja2(requirements_path)
+    rendered = render_report(template_path, context, jinja2_module)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with output_path.open("w", encoding="utf-8") as handle:
