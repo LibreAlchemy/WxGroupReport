@@ -76,22 +76,19 @@ Use `template.md` in this directory. Keep output concise, readable, and stable f
 ## Script
 
 Use `.opencode/skills/generate-report/scripts/generate_report.py` to render the report from JSON inputs.
-The script will auto-install dependencies using `REQUIREMENTS_PATH` if `jinja2` is missing.
-Required env vars:
+Scripts support both command-line arguments and environment variables (via `.env`).
+
+### Command Line Arguments
+
+- `-o, --output`: Output directory (overrides `OUTPUT_DIR`, default: `output`)
+- `-t, --template`: Template path (overrides `TEMPLATE_PATH`)
+- `--output-path`: Final report output path (overrides `OUTPUT_PATH`)
+
+### Environment Variables
 
 - `OUTPUT_DIR` (default `output`)
-
-Behavior:
-
-- Picks the most recently modified `*_processed.json` in `OUTPUT_DIR`
-- Reads analysis from `OUTPUT_DIR/analyze-messages.json`
-- Writes report to `OUTPUT_DIR/report.md` unless `OUTPUT_PATH` is set
-
-Optional env vars:
-
 - `TEMPLATE_PATH` (default `.opencode/skills/generate-report/template.md`)
 - `OUTPUT_PATH` (default `OUTPUT_DIR/report.md`)
-- `REQUIREMENTS_PATH` (default `.opencode/skills/generate-report/requirements.txt`)
 
 ## Notes
 

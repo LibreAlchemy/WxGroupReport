@@ -1,10 +1,11 @@
 import json
 import os
-import importlib
-import subprocess
 import sys
+import argparse
 from datetime import datetime
 from pathlib import Path
+
+import jinja2
 
 
 def load_json(path: Path):
@@ -124,29 +125,10 @@ def to_report_context(processed, analysis, config):
     }
 
 
-def ensure_jinja2(requirements_path: Path):
-    try:
-        return importlib.import_module("jinja2")
-    except ImportError:
-        if not requirements_path.exists():
-            raise SystemExit(f"missing requirements file: {requirements_path}")
-        command = [sys.executable, "-m", "pip", "install", "-r", str(requirements_path)]
-        try:
-            subprocess.check_call(command)
-        except Exception as exc:
-            raise SystemExit(
-                "failed to install dependencies for generate-report"
-            ) from exc
-        try:
-            return importlib.import_module("jinja2")
-        except ImportError as exc:
-            raise SystemExit("jinja2 is still missing after install") from exc
-
-
-def render_report(template_path: Path, context, jinja2_module):
+def render_report(template_path: Path, context):
     with template_path.open("r", encoding="utf-8") as handle:
         template_text = handle.read()
-    env = jinja2_module.Environment(autoescape=False)
+    env = jinja2.Environment(autoescape=False)
     template = env.from_string(template_text)
     return template.render(**context)
 
@@ -159,25 +141,26 @@ def select_latest_processed(output_dir: Path) -> Path:
 
 
 def main():
-    output_dir_env = os.getenv("OUTPUT_DIR", "output")
-    template_path_env = os.getenv(
+    parser = argparse.ArgumentParser(description="生成报告脚本")
+    parser.add_argument("-o", "--output", help="输出目录 (OUTPUT_DIR)")
+    parser.add_argument("-t", "--template", help="模板路径 (TEMPLATE_PATH)")
+    parser.add_argument("--output-path", help="最终报告输出路径 (OUTPUT_PATH)")
+    args = parser.parse_args()
+
+    output_dir_env = args.output or os.getenv("OUTPUT_DIR", "output")
+    template_path_env = args.template or os.getenv(
         "TEMPLATE_PATH", ".opencode/skills/generate-report/template.md"
     )
-    output_path_env = os.getenv("OUTPUT_PATH")
-    requirements_path_env = os.getenv(
-        "REQUIREMENTS_PATH", ".opencode/skills/generate-report/requirements.txt"
-    )
+    output_path_env = args.output_path or os.getenv("OUTPUT_PATH")
 
     assert output_dir_env is not None
     assert template_path_env is not None
-    assert requirements_path_env is not None
 
     output_dir = Path(output_dir_env)
     processed_path = select_latest_processed(output_dir)
     analysis_path = output_dir / "analyze-messages.json"
     template_path = Path(template_path_env)
     output_path = Path(output_path_env) if output_path_env else output_dir / "report.md"
-    requirements_path = Path(requirements_path_env)
 
     config = {
         "period": {
@@ -198,8 +181,7 @@ def main():
     analysis = load_json(analysis_path)
 
     context = to_report_context(processed, analysis, config)
-    jinja2_module = ensure_jinja2(requirements_path)
-    rendered = render_report(template_path, context, jinja2_module)
+    rendered = render_report(template_path, context)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with output_path.open("w", encoding="utf-8") as handle:

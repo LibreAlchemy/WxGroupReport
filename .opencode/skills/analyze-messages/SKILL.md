@@ -76,6 +76,16 @@ interface MemberScore {
 }
 ```
 
+## 错误处理与重试机制
+
+分析脚本支持增量重试逻辑，以应对 API 频率限制（429 错误）或其他网络问题：
+
+1. **增量写入**: 只有分析成功的成员结果会写入 `output/scores/` 目录。
+2. **错误记录**: 分析失败的成员会被记录在 `output/errors.json` 中，包含错误原因和消息计数。
+3. **自动重试**: 脚本会自动循环读取 `errors.json` 并重试其中的成员，直到所有成员成功分析或手动中断。
+4. **清理机制**: 成员分析成功后，会自动从 `errors.json` 中移除，并将其结果从 `scores/` 中的错误记录更新为成功记录。
+5. **汇总延迟**: 只有当所有待处理成员（包括重试成员）全部成功后，才会生成最终的 `analyze-messages.json` 汇总文件。
+
 ## 评分规则
 
 ### 评分维度 (7维度，1-5分)
@@ -162,13 +172,6 @@ interface MemberScore {
 6. **判定低质**: 按阈值判定低质成员
 7. **输出结果**: 写入 `output/analyze-messages.json`
 
-## 环境配置
-
-需要以下环境变量 (从 .env 读取):
-- `GOOGLE_API_KEY`: Google API 密钥
-- `MODEL`: 模型名称 (默认 gemini-2.0-flash)
-- `API_PROVIDER`: google
-
 ## 文件结构
 
 ```
@@ -180,3 +183,18 @@ interface MemberScore {
     ├── batcher.py          # 负载均衡分批
     └── analyze.py          # 主分析脚本
 ```
+
+## Script Usage
+
+Use `.opencode/skills/analyze-messages/scripts/analyze.py` to analyze messages.
+Scripts support both command-line arguments and environment variables (via `.env`).
+
+### Command Line Arguments
+
+- `-o, --output`: Output directory (overrides `OUTPUT_DIR`, default: `output`)
+
+### Environment Variables
+
+- `OUTPUT_DIR` (default `output`)
+- `GOOGLE_API_KEY`: Required for Gemini API
+- `MODEL`: Gemini model name (default: `gemini-2.0-flash`)

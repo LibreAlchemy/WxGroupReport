@@ -11,17 +11,29 @@ Process WeChat export JSON into per-member JSON files, then apply whitelist mark
 
 ## Workflow
 
+Scripts support both command-line arguments and environment variables (via `.env`).
+
 ### Step 1: Preprocess
 
 ```bash
-python ".opencode/skills/import-chat-data/scripts/preprocessor.py"
+python ".opencode/skills/import-chat-data/scripts/preprocessor.py" -i path/to/input.json -o output
 ```
+
+**Arguments**:
+- `-i, --input`: Input JSON file path (overrides `INPUT_PATH`)
+- `-o, --output`: Output directory (overrides `OUTPUT_DIR`, default: `output`)
+- `--include-media`: Include media messages
+- `--no-join-time`: Do not extract join time
+- `--no-individual`: Do not save individual member files
 
 ### Step 2: Apply Whitelist
 
 ```bash
-python ".opencode/skills/import-chat-data/scripts/apply_whitelist.py"
+python ".opencode/skills/import-chat-data/scripts/apply_whitelist.py" -o output
 ```
+
+**Arguments**:
+- `-o, --output`: Output directory (overrides `OUTPUT_DIR`, default: `output`)
 
 **Note**: Run scripts and check console output for file locations.
 
