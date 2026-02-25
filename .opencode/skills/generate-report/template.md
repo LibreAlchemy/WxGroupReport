@@ -31,13 +31,13 @@
 {% if articles %}
 ### 公众号/技术文章
 {%- for item in articles[:3] %}
-- [{{ item.content[:50] }}]({{ item.url }}) @{{ item.author | replace("|", "\\|") }}
+- [{{ item.title[:50] }}]({{ item.url }}) @{{ item.author | replace("|", "\\|") }}
 {%- endfor %}
 {% endif %}
 {% if github_items %}
 ### Github 项目
 {%- for item in github_items[:3] %}
-- [{{ item.content[:50] }}]({{ item.url }}) @{{ item.author | replace("|", "\\|") }}
+- [{{ item.repo[:50] }}]({{ item.url }}) @{{ item.author | replace("|", "\\|") }}
 {%- endfor %}
 {% endif %}
 {% if insights %}
@@ -49,7 +49,7 @@
 {% if opportunities %}
 ### 机会分享
 {%- for item in opportunities[:3] %}
-- {{ item.content[:80] }} — @{{ item.author | replace("|", "\\|") }}
+- {{ item.summary[:80] }} — @{{ item.author | replace("|", "\\|") }}
 {%- endfor %}
 {% endif %}
 
@@ -83,7 +83,7 @@
 
 ### 低质判定规则
 - **零发言**: 周期内无任何有效消息 (严重)
-- **低质量**: 平均分 < 15 分 (中等)
+- **低质量**: 平均分 < 0.5 分 (中等)
 - **低频次**: 发言数 < 5 条 (轻微)
 
 ---
