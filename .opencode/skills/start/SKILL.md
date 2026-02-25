@@ -13,23 +13,15 @@ This is a composite skill designed to guide the Agent through the complete analy
 
 When this skill is invoked, execute the following skills in order:
 
-1.  **import-chat-data**: 
-    - **Purpose**: Preprocess `chat.json` raw data, split by member, and apply whitelist.
-    - **Verification**: Ensure member JSON files are generated in the `output/members/` directory.
-
-2.  **analyze-messages**: 
-    - **Purpose**: Invoke Gemini API to summarize and score member messages.
-    - **Verification**: Ensure `output/analyze-messages.json` is generated.
-
-3.  **generate-report**: 
-    - **Purpose**: Render the final Markdown report based on analysis results.
-    - **Verification**: Ensure `output/report.md` is generated.
+1. **import-chat-data**
+2. **analyze-messages**
+3. **generate-report**
 
 ## Usage Guidelines
 
 - **Automatic Execution**: Proceed to the next step automatically after each successful step unless a critical error occurs.
 - **Progress Updates**: Briefly inform the user of the current progress before starting each sub-skill.
-- **Environment**: Scripts automatically load configuration from the `.env` file at runtime.
+- **Environment**: Reading `.env` files is strictly prohibited. Scripts will load configuration via environment variables at runtime.
 
 ## Example Trigger Words
 

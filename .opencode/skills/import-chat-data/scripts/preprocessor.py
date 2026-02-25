@@ -17,6 +17,7 @@ import re
 import os
 import sys
 import uuid
+import argparse
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -340,21 +341,30 @@ def parse_bool(value: Optional[str], default: bool = False) -> bool:
     return str(value).strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
-def load_config_from_env() -> Dict[str, Any]:
-    """从 .env 读取配置"""
-    if load_dotenv is None:
-        raise RuntimeError("缺少依赖 python-dotenv，请先安装")
+def load_config() -> Dict[str, Any]:
+    """从命令行参数或环境变量读取配置"""
+    parser = argparse.ArgumentParser(description="微信群聊记录预处理工具")
+    parser.add_argument("-i", "--input", help="输入 JSON 文件路径 (INPUT_PATH)")
+    parser.add_argument("-o", "--output", default="output", help="输出目录 (OUTPUT_DIR)")
+    parser.add_argument("--include-media", action="store_true", help="是否包含媒体消息")
+    parser.add_argument("--no-join-time", action="store_true", help="不提取入群时间")
+    parser.add_argument("--no-individual", action="store_true", help="不保存成员单独文件")
+    
+    args = parser.parse_args()
 
-    load_dotenv()
+    # 加载环境变量作为默认值
+    if load_dotenv:
+        load_dotenv()
 
-    input_path = os.getenv("INPUT_PATH") or os.getenv("DATA_PATH")
+    input_path = args.input or os.getenv("INPUT_PATH") or os.getenv("DATA_PATH")
     if not input_path:
-        raise ValueError("未在 .env 中配置 INPUT_PATH 或 DATA_PATH")
+        # 如果都没有，则尝试报错
+        pass 
 
-    output_dir = os.getenv("OUTPUT_DIR", "output")
-    include_media = parse_bool(os.getenv("INCLUDE_MEDIA"), default=False)
-    include_join_time = parse_bool(os.getenv("INCLUDE_JOIN_TIME"), default=True)
-    save_individual = not parse_bool(os.getenv("NO_INDIVIDUAL"), default=False)
+    output_dir = args.output or os.getenv("OUTPUT_DIR", "output")
+    include_media = args.include_media or parse_bool(os.getenv("INCLUDE_MEDIA"), default=False)
+    include_join_time = not args.no_join_time and parse_bool(os.getenv("INCLUDE_JOIN_TIME"), default=True)
+    save_individual = not args.no_individual and not parse_bool(os.getenv("NO_INDIVIDUAL"), default=False)
 
     return {
         "input_path": input_path,
@@ -367,7 +377,11 @@ def load_config_from_env() -> Dict[str, Any]:
 
 def main():
     """命令行入口"""
-    config = load_config_from_env()
+    config = load_config()
+
+    if not config["input_path"]:
+        print("❌ 错误: 未指定输入文件。请通过 -i/--input 参数或环境变量 INPUT_PATH 指定。", file=sys.stderr)
+        return 1
 
     try:
         input_path = Path(config["input_path"])

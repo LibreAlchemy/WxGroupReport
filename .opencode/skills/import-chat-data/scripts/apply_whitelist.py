@@ -5,13 +5,21 @@ Apply whitelist marks to member files based on whitelist.md
 """
 
 import json
+import os
+import argparse
 from pathlib import Path
 
 
 def main():
+    parser = argparse.ArgumentParser(description="Apply whitelist marks to member files")
+    parser.add_argument("-o", "--output", default="output", help="输出目录 (OUTPUT_DIR)")
+    args = parser.parse_args()
+
     # 优先从根目录的 whitelist.md 加载
     whitelist_file = Path("whitelist.md")
-    members_dir = Path("output/members")
+    
+    output_dir = Path(args.output or os.getenv("OUTPUT_DIR", "output"))
+    members_dir = output_dir / "members"
 
     if not whitelist_file.exists():
         print(f"Whitelist file not found: {whitelist_file}, skipping...")

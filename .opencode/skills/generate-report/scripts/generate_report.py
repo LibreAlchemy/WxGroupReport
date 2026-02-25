@@ -1,6 +1,7 @@
 import json
 import os
 import sys
+import argparse
 from datetime import datetime
 from pathlib import Path
 
@@ -140,11 +141,17 @@ def select_latest_processed(output_dir: Path) -> Path:
 
 
 def main():
-    output_dir_env = os.getenv("OUTPUT_DIR", "output")
-    template_path_env = os.getenv(
+    parser = argparse.ArgumentParser(description="生成报告脚本")
+    parser.add_argument("-o", "--output", help="输出目录 (OUTPUT_DIR)")
+    parser.add_argument("-t", "--template", help="模板路径 (TEMPLATE_PATH)")
+    parser.add_argument("--output-path", help="最终报告输出路径 (OUTPUT_PATH)")
+    args = parser.parse_args()
+
+    output_dir_env = args.output or os.getenv("OUTPUT_DIR", "output")
+    template_path_env = args.template or os.getenv(
         "TEMPLATE_PATH", ".opencode/skills/generate-report/template.md"
     )
-    output_path_env = os.getenv("OUTPUT_PATH")
+    output_path_env = args.output_path or os.getenv("OUTPUT_PATH")
 
     assert output_dir_env is not None
     assert template_path_env is not None

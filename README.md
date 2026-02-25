@@ -26,7 +26,6 @@ WxGroupReport/
 ├── .env.example              # 环境变量模板
 ├── .gitignore
 ├── requirements.txt          # Python 依赖
-│
 ├── .opencode/
 │   └── skills/
 │       ├── start/               # Skill 0: 流程启动
@@ -46,10 +45,7 @@ WxGroupReport/
 │           └── scripts/
 │               └── generate_report.py
 │
-├── data/                    # 输入数据
-│   └── chat.json
-│
-└── output/                  # 输出结果
+└── output/                 # 输出结果
     ├── members/            # 成员文件
     ├── group_info.json
     ├── analyze-messages.json
@@ -91,9 +87,7 @@ cp .env.example .env
 
 | 变量 | 说明 | 示例 |
 |------|------|------|
-| `INPUT_PATH` | 微信导出的 JSON 文件路径 | `./group/chat.json` |
 | `GOOGLE_API_KEY` | Google API 密钥 | `AIzaSy...` |
-| `OUTPUT_DIR` | 输出目录 | `output` |
 
 Tips：获取 Google API Key
 
@@ -112,13 +106,7 @@ Tips：获取 Google API Key
 
 ### 5. 准备输入数据
 
-将微信聊天记录导出为 JSON 格式，放到项目目录：
-
-```
-WxGroupReport/
-└── group/
-    └── chat.json    # 你的微信导出文件
-```
+将微信聊天记录导出为 JSON 格式，放到任意位置。
 
 ### 6. 生成报告
 
@@ -127,7 +115,7 @@ WxGroupReport/
 opencode
 
 # 输入下面的提示词
-执行 start skill
+/start path/to/chat.json
 ```
 
 ## 白名单配置 (可选)
