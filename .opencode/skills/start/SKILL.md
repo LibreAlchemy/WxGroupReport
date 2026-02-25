@@ -29,7 +29,7 @@ When this skill is invoked, execute the following skills in order:
 
 - **Automatic Execution**: Proceed to the next step automatically after each successful step unless a critical error occurs.
 - **Progress Updates**: Briefly inform the user of the current progress before starting each sub-skill.
-- **Environment Check**: Before starting, verify that the `.env` file is properly configured (especially `GOOGLE_API_KEY` and `INPUT_PATH`).
+- **Environment**: Scripts automatically load configuration from the `.env` file at runtime.
 
 ## Example Trigger Words
 

@@ -76,6 +76,8 @@ Use `template.md` in this directory. Keep output concise, readable, and stable f
 ## Script
 
 Use `.opencode/skills/generate-report/scripts/generate_report.py` to render the report from JSON inputs.
+Scripts automatically load configuration from the `.env` file.
+
 Required env vars:
 
 - `OUTPUT_DIR` (default `output`)

@@ -11,6 +11,8 @@ Process WeChat export JSON into per-member JSON files, then apply whitelist mark
 
 ## Workflow
 
+Scripts automatically load configuration from the `.env` file at runtime.
+
 ### Step 1: Preprocess
 
 ```bash

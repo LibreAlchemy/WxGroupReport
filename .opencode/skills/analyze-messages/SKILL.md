@@ -162,13 +162,6 @@ interface MemberScore {
 6. **判定低质**: 按阈值判定低质成员
 7. **输出结果**: 写入 `output/analyze-messages.json`
 
-## 环境配置
-
-需要以下环境变量 (从 .env 读取):
-- `GOOGLE_API_KEY`: Google API 密钥
-- `MODEL`: 模型名称 (默认 gemini-2.0-flash)
-- `API_PROVIDER`: google
-
 ## 文件结构
 
 ```

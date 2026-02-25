@@ -127,7 +127,7 @@ WxGroupReport/
 opencode
 
 # 输入下面的提示词
-生成报告
+执行 start skill
 ```
 
 ## 白名单配置 (可选)
