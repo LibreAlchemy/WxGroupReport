@@ -1,5 +1,7 @@
 # Chat Data
 group/
+data/
+output/
 
 # Sensitive & Privacy Files
 .env
@@ -18,3 +20,29 @@ credentials.*
 *.mdb
 *.accdb
 .kiro/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+
+# Virtual Environments
+.venv/
+venv/
+env/
+
+# UV
+uv.lock
+pyproject.toml
+.python-version
+
+# Logs
+*.log
+
+# AI Identity Related
+AGENTS.md
