@@ -122,24 +122,23 @@ WxGroupReport/
 
 ### 6. 生成报告
 
-在 `OpenCode` 中输入下面的提示生成报告：
+```bash
+# 启动 OpenCode
+opencode
 
-```
+# 输入下面的提示词
 生成报告
 ```
 
 ## 白名单配置 (可选)
 
-在 `output/` 目录下创建 `whitelist.txt`:
+在项目根目录下创建 `whitelist.md`，使用 Markdown 表格格式列出成员的 **微信 ID (wxid)** 或 **群昵称**：
 
-```
-# 活跃成员 (不参与低质判定)
-张三
-李四
-王五
-
-# 贡献成员
-赵六
+```markdown
+|昵称|wxid|
+|----|----|
+|张三|wxid_123456|
+|李四|wxid_789012|
 ```
 
 ## 常见问题

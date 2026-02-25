@@ -46,3 +46,5 @@ pyproject.toml
 
 # AI Identity Related
 AGENTS.md
+
+whitelist.md
