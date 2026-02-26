@@ -11,6 +11,7 @@ import os
 import sys
 import glob
 import argparse
+import time
 from pathlib import Path
 from typing import List, Optional
 from dotenv import load_dotenv
@@ -50,12 +51,26 @@ else:
         provider = "gemini"
     LITELLM_MODEL = f"{provider}/{AI_MODEL_NAME}"
 
-# 并发数
-MAX_WORKERS = 5
-# 打分阈值
-LOW_SCORE_THRESHOLD = 0.5
-# 发言数阈值
-LOW_MSG_THRESHOLD = 10
+# 默认并发数
+DEFAULT_MAX_WORKERS = 10
+
+
+def resolve_max_workers() -> int:
+    raw = os.getenv("MAX_ANALYZE_WORKERS", str(DEFAULT_MAX_WORKERS))
+    try:
+        value = int(raw)
+        return max(1, value)
+    except ValueError:
+        print(
+            f"⚠️ 无效 MAX_ANALYZE_WORKERS={raw!r}，将使用默认值 {DEFAULT_MAX_WORKERS}",
+            file=sys.stderr,
+        )
+        return DEFAULT_MAX_WORKERS
+
+
+MAX_WORKERS = resolve_max_workers()
+SLOW_API_SECONDS = float(os.getenv("ANALYZE_SLOW_API_SECONDS", "8"))
+LOG_INFLIGHT = os.getenv("ANALYZE_LOG_INFLIGHT", "0") not in {"0", "false", "False"}
 
 class Highlight(BaseModel):
     type: str = Field(description="文章|GitHub|见解|机会 (article|github|insight|opportunity)")
@@ -75,17 +90,22 @@ class Stats(BaseModel):
 
 class AnalysisResult(BaseModel):
     summary: str = Field(description="成员消息的总结（30-100字）")
+    quality_score: int = Field(
+        default=50, ge=0, le=100, description="成员整体内容质量分（0-100）"
+    )
     stats: Stats = Field(description="各类型消息的数量统计")
     highlights: List[Highlight] = Field(default_factory=list, description="消息中的亮点内容")
 
 
-def build_prompt(wxid: str, nickname: str, messages: list) -> str:
-    """构建评分 prompt"""
-    # 过滤掉以 "#接龙" 开头的消息
-    filtered_messages = [
+def filter_effective_messages(messages: list) -> list:
+    """过滤无效消息（当前规则：去掉以 '#接龙' 开头的消息）"""
+    return [
         m for m in messages if not m.get("content", "").strip().startswith("#接龙")
     ]
 
+
+def build_prompt(wxid: str, nickname: str, filtered_messages: list) -> str:
+    """构建评分 prompt"""
     msgs_text = "\n".join(
         [f"{i}. {m.get('content', '')}" for i, m in enumerate(filtered_messages)]
     )
@@ -102,84 +122,106 @@ def build_prompt(wxid: str, nickname: str, messages: list) -> str:
 1. 总结要客观准确，涵盖成员的主要言论特点。
 2. stats 统计应基于消息内容进行合理分类。
 3. highlights 仅记录有价值的内容（如分享的文章、GitHub项目、深刻的见解或明确的合作机会）。
+4. 必须输出 quality_score（0-100），用于评估成员整体内容质量，尽量拉开分布。
+
+## quality_score 评分锚点
+- 0~20: 几乎无信息量，纯表情/灌水/重复复读
+- 21~40: 信息量较低，闲聊为主，偶有有效内容
+- 41~60: 有一定信息量，包含问题、回复或一般观点
+- 61~80: 持续输出有效内容，有较强技术/资源价值
+- 81~100: 高密度高价值输出，具备深度见解或强资源贡献
 
 ## 输出格式 (JSON)
 {{
   "summary": "总结（30-100字）",
+  "quality_score": 0,
   "stats": {{"resource": 0, "technical": 0, "qa": 0, "discussion": 0, "insight": 0, "opportunity": 0, "reply": 0}},
   "highlights": [{{"type": "article|github|insight|opportunity", "content": "", "url": ""}}]
 }}
 """
 
 
-async def analyze_member(sem, wxid: str, nickname: str, messages: list) -> dict:
+async def analyze_member(sem, wxid: str, nickname: str, messages: list, inflight_state) -> dict:
     """分析单个成员"""
     async with sem:
-        if not messages:
-            return {
-                "wxid": wxid,
-                "nickname": nickname,
-                "messageCount": 0,
-                "totalScore": 0,
-                "averageScore": 0,
-                "summary": "无消息",
-                "stats": {},
-                "highlights": [],
-                "status": "zero_activity",
-            }
+        async with inflight_state["lock"]:
+            inflight_state["count"] += 1
+            current_inflight = inflight_state["count"]
+        if LOG_INFLIGHT:
+            print(f"🚦 并发占用 {current_inflight}/{MAX_WORKERS} -> 开始: {nickname} ({wxid})")
 
+        t0 = time.perf_counter()
         try:
-            prompt = build_prompt(wxid, nickname, messages)
-            
-            # 使用 litellm 进行结构化输出
-            response = await litellm.acompletion(
-                model=LITELLM_MODEL,
-                messages=[{"role": "user", "content": prompt}],
-                response_format=AnalysisResult,
-                api_key=AI_API_KEY,
-                base_url=AI_BASE_URL,
-            )
-            
-            # 解析结果
-            content = response.choices[0].message.content
-            
-            # 处理可能的 markdown 代码块
-            if content.startswith("```json"):
-                content = content.replace("```json", "", 1).rsplit("```", 1)[0].strip()
-            elif content.startswith("```"):
-                content = content.replace("```", "", 1).rsplit("```", 1)[0].strip()
-            
-            result = AnalysisResult.model_validate_json(content)
-            
-            stats_dict = result.stats.model_dump()
-            total = sum(stats_dict.values())
-            avg = total / len(messages) if messages else 0
+            filtered_messages = filter_effective_messages(messages)
+            effective_count = len(filtered_messages)
 
-            return {
-                "wxid": wxid,
-                "nickname": nickname,
-                "messageCount": len(messages),
-                "totalScore": total,
-                "averageScore": round(avg, 2),
-                "summary": result.summary,
-                "stats": stats_dict,
-                "highlights": [h.model_dump() for h in result.highlights],
-                "status": "normal",
-            }
-        except Exception as e:
-            print(f"❌ 分析成员 {nickname} ({wxid}) 失败: {str(e)}", file=sys.stderr)
-            return {
-                "wxid": wxid,
-                "nickname": nickname,
-                "messageCount": len(messages),
-                "totalScore": 0,
-                "averageScore": 0,
-                "summary": "",
-                "stats": {},
-                "highlights": [],
-                "status": "error",
-                "error": str(e),
-            }
+            if effective_count == 0:
+                return {
+                    "wxid": wxid,
+                    "nickname": nickname,
+                    "messageCount": 0,
+                    "qualityScore": 0,
+                    "summary": "无消息",
+                    "stats": {},
+                    "highlights": [],
+                    "status": "zero_activity",
+                    "apiDurationSec": round(time.perf_counter() - t0, 3),
+                }
+
+            try:
+                prompt = build_prompt(wxid, nickname, filtered_messages)
+                
+                # 使用 litellm 进行结构化输出
+                response = await litellm.acompletion(
+                    model=LITELLM_MODEL,
+                    messages=[{"role": "user", "content": prompt}],
+                    response_format=AnalysisResult,
+                    api_key=AI_API_KEY,
+                    base_url=AI_BASE_URL,
+                )
+                
+                # 解析结果
+                content = response.choices[0].message.content
+                
+                # 处理可能的 markdown 代码块
+                if content.startswith("```json"):
+                    content = content.replace("```json", "", 1).rsplit("```", 1)[0].strip()
+                elif content.startswith("```"):
+                    content = content.replace("```", "", 1).rsplit("```", 1)[0].strip()
+                
+                result = AnalysisResult.model_validate_json(content)
+                
+                stats_dict = result.stats.model_dump()
+                quality_score = max(0, min(100, int(result.quality_score)))
+
+                return {
+                    "wxid": wxid,
+                    "nickname": nickname,
+                    "messageCount": effective_count,
+                    "qualityScore": round(float(quality_score), 1),
+                    "summary": result.summary,
+                    "stats": stats_dict,
+                    "highlights": [h.model_dump() for h in result.highlights],
+                    "status": "normal",
+                    "apiDurationSec": round(time.perf_counter() - t0, 3),
+                }
+            except Exception as e:
+                print(f"❌ 分析成员 {nickname} ({wxid}) 失败: {str(e)}", file=sys.stderr)
+                return {
+                    "wxid": wxid,
+                    "nickname": nickname,
+                    "messageCount": effective_count,
+                    "qualityScore": 0,
+                    "summary": "",
+                    "stats": {},
+                    "highlights": [],
+                    "status": "error",
+                    "error": str(e),
+                    "apiDurationSec": round(time.perf_counter() - t0, 3),
+                }
+        finally:
+            async with inflight_state["lock"]:
+                inflight_state["count"] = max(0, inflight_state["count"] - 1)
 
 
 def load_errors() -> dict:
@@ -220,11 +262,17 @@ async def main():
     Path(SCORES_DIR).mkdir(parents=True, exist_ok=True)
 
     print(f"🤖 使用模型: {LITELLM_MODEL}")
+    print(f"⚙️ 并发配置: MAX_ANALYZE_WORKERS={MAX_WORKERS}, 慢请求阈值={SLOW_API_SECONDS:.1f}s")
+
+    loop_round = 0
 
     while True:
+        loop_round += 1
+        round_t0 = time.perf_counter()
         # 1. 识别待处理成员
         pending_members = []
         errors_data = load_errors()
+        scan_t0 = time.perf_counter()
         
         # 扫描 members 目录
         for filepath in glob.glob(os.path.join(MEMBERS_DIR, "*.json")):
@@ -246,13 +294,19 @@ async def main():
                         score_data = json.load(f)
                         # 只要 status 不是 error，就说明已经处理过了（包括 normal, zero_activity, low_frequency 等）
                         if score_data.get("status") != "error":
+                            if wxid in errors_data:
+                                del errors_data[wxid]
                             continue
                     except:
                         pass
 
             pending_members.append((wxid, nickname, messages))
 
+        scan_cost = time.perf_counter() - scan_t0
+        print(f"🧭 第{loop_round}轮扫描完成: 待处理 {len(pending_members)} 人, 用时 {scan_cost:.2f}s")
+
         if not pending_members:
+            save_errors(errors_data)
             print("✅ 所有成员已成功分析。")
             break
 
@@ -260,11 +314,16 @@ async def main():
         
         # 统一并发处理
         sem = asyncio.Semaphore(MAX_WORKERS)
-        tasks = [analyze_member(sem, wxid, nick, msgs) for wxid, nick, msgs in pending_members]
+        inflight_state = {"count": 0, "lock": asyncio.Lock()}
+        tasks = [
+            analyze_member(sem, wxid, nick, msgs, inflight_state)
+            for wxid, nick, msgs in pending_members
+        ]
         
         batch_results = []
         completed = 0
         total = len(tasks)
+        batch_t0 = time.perf_counter()
         
         for coro in asyncio.as_completed(tasks):
             result = await coro
@@ -302,15 +361,24 @@ async def main():
             
             # 即时保存错误记录
             save_errors(errors_data)
-            print(f"[{completed}/{total}] {status_char} {nickname} ({msg_count}条)")
+            api_cost = result.get("apiDurationSec", 0.0)
+            print(f"[{completed}/{total}] {status_char} {nickname} ({msg_count}条, {api_cost:.2f}s)")
 
         # 2. 统计本轮结果
         success_count = sum(1 for r in batch_results if r["status"] != "error")
         error_count = len(batch_results) - success_count
-        
-        print(f"📈 本轮完成: 成功 {success_count}, 失败 {error_count}")
+        batch_cost = time.perf_counter() - batch_t0
+        durations = sorted(r.get("apiDurationSec", 0.0) for r in batch_results)
+        avg_cost = (sum(durations) / len(durations)) if durations else 0.0
+        p95_cost = durations[int(len(durations) * 0.95) - 1] if durations else 0.0
+        slow_count = sum(1 for d in durations if d >= SLOW_API_SECONDS)
+
+        print(f"📈 本轮完成: 成功 {success_count}, 失败 {error_count}, 总耗时 {batch_cost:.2f}s")
+        print(f"⏱️ API耗时统计: avg={avg_cost:.2f}s, p95={p95_cost:.2f}s, slow>={SLOW_API_SECONDS:.1f}s: {slow_count}/{len(durations)}")
         
         if error_count == 0:
+            round_cost = time.perf_counter() - round_t0
+            print(f"✅ 第{loop_round}轮已收敛, 总用时 {round_cost:.2f}s")
             break
         
         # 如果有错误，等待一段时间后重试
@@ -320,6 +388,7 @@ async def main():
 
     # 3. 最终汇总
     print("📊 正在生成最终汇总报告...")
+    summary_t0 = time.perf_counter()
     results = []
     for filepath in glob.glob(os.path.join(SCORES_DIR, "*.json")):
         with open(filepath, encoding="utf-8") as f:
@@ -336,41 +405,11 @@ async def main():
             h["author"] = r["nickname"]
             all_highlights.append(h)
 
-    # 计算低质成员
-
-    low_quality_members = []
-    for r in results:
-        msg_count = r.get("messageCount", 0)
-        avg_score = r.get("averageScore", 0)
-
-        if msg_count == 0:
-            low_quality_members.append({
-                "wxid": r["wxid"], "nickname": r["nickname"],
-                "messageCount": msg_count, "averageScore": avg_score,
-                "status": "zero_activity", "severity": "high", "reason": "无消息"
-            })
-        elif avg_score < LOW_SCORE_THRESHOLD and msg_count < LOW_MSG_THRESHOLD:
-            low_quality_members.append({
-                "wxid": r["wxid"], "nickname": r["nickname"],
-                "messageCount": msg_count, "averageScore": avg_score,
-                "status": "low_quality", "severity": "medium", "reason": f"发言{msg_count}条且均分{avg_score:.1f}低"
-            })
-        elif msg_count < LOW_MSG_THRESHOLD:
-            low_quality_members.append({
-                "wxid": r["wxid"], "nickname": r["nickname"],
-                "messageCount": msg_count, "averageScore": avg_score,
-                "status": "low_frequency", "severity": "low", "reason": f"发言仅{msg_count}条"
-            })
-
-    severity_order = {"high": 0, "medium": 1, "low": 2}
-    low_quality_members.sort(key=lambda x: severity_order.get(x["severity"], 3))
-
     analysis_data = {
         "success": True,
         "data": {
             "memberScores": results,
             "highlights": all_highlights,
-            "lowQualityMembers": low_quality_members,
         },
     }
     analysis_path = os.path.join(OUTPUT_DIR, "analyze-messages.json")
@@ -378,8 +417,10 @@ async def main():
         json.dump(analysis_data, f, ensure_ascii=False, indent=2)
 
     total_msgs = sum(r["messageCount"] for r in results)
+    summary_cost = time.perf_counter() - summary_t0
     print(f"\n✨ 分析全部完成！")
     print(f"总成员: {len(results)}, 总消息: {total_msgs}, 总高亮: {len(all_highlights)}")
+    print(f"🧾 汇总写盘耗时: {summary_cost:.2f}s")
     print(f"结果已汇总至: {analysis_path}")
 
 

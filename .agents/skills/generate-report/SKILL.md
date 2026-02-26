@@ -1,12 +1,14 @@
 ---
 name: generate-report
-description: generate group report based on analyzed data.
+description: Generate Markdown reports (`report.md` and `low_quality_members.md`) from analyzed data.
 ---
 # Skill: generate-report
 
 ## Overview
 
-Generate a Markdown report using Jinja2 templates based on analyzed data. Input includes group info, member scores, highlights, and low-quality members. Output is Markdown content and optional file write.
+Generate two Markdown files with Jinja2 templates:
+- main report: `output/report.md`
+- low-quality report: `output/low_quality_members.md`
 
 ## When to Use
 
@@ -15,19 +17,17 @@ Generate a Markdown report using Jinja2 templates based on analyzed data. Input 
 
 ## Workflow (must follow)
 
-1. Load `template.md` from this skill directory.
+1. Load templates from this skill:
+   - `references/template.md`
+   - `references/low_quality_template.md`
 2. Prepare template context:
-   - `group_name` from `groupInfo.name`
-   - `period_start`, `period_end` from `config.period` if provided, otherwise `-`
-   - `generated_at` ISO timestamp (now)
-   - `report_number` from `config.reportNumber` (default 1)
-   - Summary counts: `total_members`, `active_members`, `low_quality_count`, `highlights_count`
-   - `top_members`: top 10 by `messageCount` desc; each item fields `name`, `msg_count`, `avg_score`
-   - `articles`, `github_items`, `insights`, `opportunities`: pick the top item per type from `highlights`
-   - `low_quality_members`: include `name`, `msg_count`, `avg_score`, `reason`, `severity_label`
+   - period / generated time / report number
+   - summary counts: `total_members`, `active_members`, `low_quality_count`, `highlights_count`
+   - `top_members`: top 10 by computed activity score
+   - highlights split by type
+   - `low_quality_members` and grouped `low_quality_groups`
 3. Render the template with the context.
-4. If `config.outputPath` is provided, write the Markdown file and return `filePath`.
-5. Return `content` and `summary` fields in the output.
+4. Write both output files.
 
 ## Input / Output
 
@@ -35,13 +35,10 @@ Generate a Markdown report using Jinja2 templates based on analyzed data. Input 
 
 ```ts
 interface ReportInput {
-  groupInfo: GroupInfo;
   memberScores: MemberScore[];
   highlights: Highlight[];
-  lowQualityMembers: LowQualityMember[];
   config?: {
     period?: { start: string; end: string; };
-    outputPath?: string;
     reportNumber?: number;
   };
 }
@@ -53,14 +50,8 @@ interface ReportInput {
 interface ReportOutput {
   success: boolean;
   data?: {
-    content: string;
-    filePath?: string;
-    summary: {
-      totalMembers: number;
-      activeMembers: number;
-      lowQualityCount: number;
-      highlightsCount: number;
-    };
+    reportPath: string;
+    lowQualityPath: string;
   };
   error?: {
     code: string;
@@ -71,27 +62,26 @@ interface ReportOutput {
 
 ## Template
 
-Use `template.md` in this directory. Keep output concise, readable, and stable for missing data.
+Use templates in `references/` directory.
 
 ## Script
 
-Use `.opencode/skills/generate-report/scripts/generate_report.py` to render the report from JSON inputs.
+Use `.agents/skills/generate-report/scripts/generate_report.py` to render reports from JSON inputs.
 Scripts support both command-line arguments and environment variables (via `.env`).
 
 ### Command Line Arguments
 
 - `-o, --output`: Output directory (overrides `OUTPUT_DIR`, default: `output`)
-- `-t, --template`: Template path (overrides `TEMPLATE_PATH`)
-- `--output-path`: Final report output path (overrides `OUTPUT_PATH`)
+- `--low-quality-template`: Optional low-quality template path
+- `--low-quality-output`: Optional low-quality output path
 
 ### Environment Variables
 
 - `OUTPUT_DIR` (default `output`)
-- `TEMPLATE_PATH` (default `.opencode/skills/generate-report/template.md`)
-- `OUTPUT_PATH` (default `OUTPUT_DIR/report.md`)
+- `LOW_QUALITY_TEMPLATE_PATH` (optional override, default uses script sibling `references/low_quality_template.md`)
+- `LOW_QUALITY_OUTPUT_PATH` (optional override, default `output/low_quality_members.md`)
 
 ## Notes
 
-- Whitelisted members are included in ranking and summary counts.
-- Low-quality list excludes whitelisted members.
+- Main template path is fixed in script and resolves from script location.
 - Do not emit large JSON blobs in chat output.

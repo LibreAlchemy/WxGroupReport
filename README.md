@@ -83,22 +83,11 @@ cp .env.example .env
 
 编辑 `.env` 文件，配置以下必需项：
 
-#### 必需配置
-
 | 变量 | 说明 | 示例 |
 |------|------|------|
 | `AI_PROVIDER` | AI 厂商 (如 `openai`, `anthropic`, `gemini`, `deepseek` 等) | `gemini` |
 | `AI_MODEL` | 模型名称 (如 `gemini-2.0-flash` 或完整路径 `deepseek/deepseek-chat`) | `gemini-2.0-flash` |
 | `AI_API_KEY` | 对应厂商的 API Key | `AIzaSy...` |
-
-#### 可选配置
-
-| 变量 | 默认值 | 说明 |
-|------|--------|------|
-| `AI_BASE_URL` | - | API 地址 (主要用于 OpenAI 兼容接口) |
-| `PERIOD_START` | - | 统计开始日期 (ISO 8601) |
-| `PERIOD_END` | - | 统计结束日期 (ISO 8601) |
-| `REPORT_NUMBER` | `1` | 报告期号 |
 
 ### 5. 准备输入数据
 
@@ -140,10 +129,6 @@ opencode
 ### Q: 报告生成失败
 
 确保 `output/analyze-messages.json` 存在且格式正确
-
-### Q: 如何处理大文件？
-
-`analyze-messages` 会自动分批处理，每批 100 条消息，支持并行调用
 
 ## License
 

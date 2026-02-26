@@ -1,28 +1,18 @@
 ---
 name: analyze-messages
-description: Use when scoring processed WeChat member messages, extracting highlights, and identifying low-quality members based on new scoring rules.
+description: Analyze processed WeChat member messages with LLM, output member scores and highlights.
 ---
 
 # Skill: analyze-messages
 
 ## Overview
 
-使用 Google Gemini API 并行分析成员消息，实现成员级总结+评分，提取精彩内容，识别低质成员。
+并行分析成员消息，输出成员级总结、质量分和精彩内容。
 
 ## When to Use
 
-- 用户要求分析成员消息
-- 需要使用外部 API (非 Claude Code 内置模型)
-- 需要并行处理提升效率
-
-## 核心变化
-
-| 项目 | 旧设计 | 新设计 |
-|------|--------|--------|
-| 评分方式 | 7维度×1-5分逐条评分 | 成员级总结 + 评分 |
-| API | Claude Code 内置 | Google Gemini API |
-| 并行粒度 | 30条/批 | 按成员分组，100条/批 |
-| 输出 | 每条消息评分 | 成员级总结+评分 |
+- 需要对成员发言做批量 AI 分析
+- 需要输出 `output/analyze-messages.json`
 
 ## Input / Output
 
@@ -48,14 +38,6 @@ interface AnalyzeOutput {
   data?: {
     memberScores: MemberScore[];
     highlights: Highlight[];
-    lowQualityMembers: LowQualityMember[];
-    summary: {
-      totalMembers: number;
-      analyzedMembers: number;
-      totalMessages: number;
-      highlightsCount: number;
-      lowQualityCount: number;
-    };
   };
   error?: {
     code: string;
@@ -67,52 +49,48 @@ interface MemberScore {
   wxid: string;
   nickname: string;
   messageCount: number;
-  totalScore: number;
-  averageScore: number;
-  summary: string;           // 成员发言总结
-  isWhitelisted: boolean;
-  status: "normal" | "low_quality" | "zero_activity" | "low_frequency";
-  reason?: string;
+  qualityScore: number;  // 0-100，成员发言质量分
+  summary: string;
+  status: "normal" | "zero_activity" | "error";
+  stats: {
+    resource: number;
+    technical: number;
+    qa: number;
+    discussion: number;
+    insight: number;
+    opportunity: number;
+    reply: number;
+  };
+  highlights: Highlight[];
 }
 ```
 
 ## 错误处理与重试机制
 
-分析脚本支持增量重试逻辑，以应对 API 频率限制（429 错误）或其他网络问题：
+脚本使用增量重试：
 
 1. **增量写入**: 只有分析成功的成员结果会写入 `output/scores/` 目录。
 2. **错误记录**: 分析失败的成员会被记录在 `output/errors.json` 中，包含错误原因和消息计数。
 3. **自动重试**: 脚本会自动循环读取 `errors.json` 并重试其中的成员，直到所有成员成功分析或手动中断。
-4. **清理机制**: 成员分析成功后，会自动从 `errors.json` 中移除，并将其结果从 `scores/` 中的错误记录更新为成功记录。
-5. **汇总延迟**: 只有当所有待处理成员（包括重试成员）全部成功后，才会生成最终的 `analyze-messages.json` 汇总文件。
+4. **清理机制**: 成员成功后自动从 `errors.json` 移除；若已有成功 score，也会在扫描阶段清理残留错误项。
+5. **汇总延迟**: 全部处理完成后生成 `output/analyze-messages.json`。
 
 ## 评分规则
 
-### 评分维度 (7维度，1-5分)
+### 质量分
 
-| 维度 | 说明 |
-|------|------|
-| technical_share | 技术分享 |
-| resource_share | 资源分享 |
-| answer_question | 解答问题 |
-| deep_discussion | 深度讨论 |
-| original_viewpoint | 原创观点 |
-| opportunity_share | 机会分享 |
-| interactive_reply | 互动回复 |
+- 模型输出 `quality_score`（0-100）
+- 系统写入 `qualityScore`
 
-### 评分流程
+### 统计维度（stats）
 
-1. **消息分组**: 按成员 wxid 分组
-2. **负载均衡**: 按消息数量将成员分配到并行任务
-3. **API 调用**: 每批消息 (≤100条) 调用 Gemini API
-4. **总结+评分**: API 返回成员总结 + 每条消息评分
-5. **聚合**: 合并所有成员评分结果
-
-### 低质判定
-
-- zero_activity: messageCount == 0 (严重程度: 高)
-- low_quality: averageScore < 60 (严重程度: 中)
-- low_frequency: messageCount < 5 (严重程度: 低)
+- `resource` 资源分享
+- `technical` 技术探讨
+- `qa` 问答/求助
+- `discussion` 一般讨论
+- `insight` 深度见解
+- `opportunity` 合作机会
+- `reply` 回复他人
 
 ## API Prompt 模板
 
@@ -130,63 +108,38 @@ interface MemberScore {
 
 ## 输出格式 (JSON)
 {
-  "summary": "成员发言总结（50-200字）",
-  "scores": [
-    {
-      "message_index": 0,
-      "technical_share": 3,
-      "resource_share": 0,
-      "answer_question": 0,
-      "deep_discussion": 0,
-      "original_viewpoint": 0,
-      "opportunity_share": 0,
-      "interactive_reply": 2,
-      "total_score": 5
-    }
-  ],
+  "summary": "成员发言总结（30-100字）",
+  "quality_score": 0,
+  "stats": {"resource": 0, "technical": 0, "qa": 0, "discussion": 0, "insight": 0, "opportunity": 0, "reply": 0},
   "highlights": [
     {
       "type": "article|github|insight|opportunity",
       "content": "内容摘要",
-      "url": "链接（如果有）",
-      "message_index": 0
+      "url": "链接（如果有）"
     }
   ]
 }
 ```
 
-## 并行策略
-
-1. 按成员 wxid 分组消息
-2. 按消息数量降序排序成员
-3. 轮询分配成员到 N 个并行任务，保证每任务消息数均衡
-4. 每任务使用 concurrent.futures.ThreadPoolExecutor 并行调用 API
-
 ## 处理步骤
 
 1. **加载成员文件**: 读取 `output/members/*.json`
-2. **分组消息**: 按 wxid 聚合消息
-3. **负载均衡**: 分配到 N 个并行任务
-4. **API 评分**: 并行调用 Gemini API
-5. **聚合结果**: 合并所有成员评分
-6. **判定低质**: 按阈值判定低质成员
-7. **输出结果**: 写入 `output/analyze-messages.json`
+2. **并发调用**: 按成员并发调用模型
+3. **增量写入**: 输出 `output/scores/*.json` 和 `output/errors.json`
+4. **汇总结果**: 生成 `output/analyze-messages.json`
 
 ## 文件结构
 
 ```
-.opencode/skills/analyze-messages/
+.agents/skills/analyze-messages/
 ├── SKILL.md                 # 本文件
 └── scripts/
-    ├── __init__.py
-    ├── api_client.py        # Gemini API 调用
-    ├── batcher.py          # 负载均衡分批
     └── analyze.py          # 主分析脚本
 ```
 
 ## Script Usage
 
-Use `.opencode/skills/analyze-messages/scripts/analyze.py` to analyze messages.
+Use `.agents/skills/analyze-messages/scripts/analyze.py` to analyze messages.
 Scripts support both command-line arguments and environment variables (via `.env`).
 
 ### Command Line Arguments
@@ -196,5 +149,6 @@ Scripts support both command-line arguments and environment variables (via `.env
 ### Environment Variables
 
 - `OUTPUT_DIR` (default `output`)
-- `GOOGLE_API_KEY`: Required for Gemini API
-- `MODEL`: Gemini model name (default: `gemini-2.0-flash`)
+- `AI_PROVIDER` / `AI_MODEL` / `AI_API_KEY` / `AI_BASE_URL`
+- `MAX_ANALYZE_WORKERS` (default `10`)
+- `ANALYZE_SLOW_API_SECONDS` (default `8`)
