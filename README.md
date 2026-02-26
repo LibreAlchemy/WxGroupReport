@@ -12,7 +12,7 @@
 
 ## 技术栈
 
-- **AI 模型**: Google Gemini API
+- **AI 模型**: 支持主流模型厂商 (通过 [LiteLLM](https://github.com/BerriAI/litellm))
 - **脚本**: Python 3.10+
 - **模板**: Jinja2
 - **Agent**: OpenCode
@@ -83,26 +83,11 @@ cp .env.example .env
 
 编辑 `.env` 文件，配置以下必需项：
 
-#### 必需配置
-
 | 变量 | 说明 | 示例 |
 |------|------|------|
-| `GOOGLE_API_KEY` | Google API 密钥 | `AIzaSy...` |
-
-Tips：获取 Google API Key
-
-1. 访问 [Google AI Studio](https://aistudio.google.com/app/apikey)
-2. 创建新的 API Key
-3. 复制到 `.env` 文件的 `GOOGLE_API_KEY`
-
-#### 可选配置
-
-| 变量 | 默认值 | 说明 |
-|------|--------|------|
-| `MODEL` | `gemini-2.5-flash` | 使用的 AI 模型 |
-| `PERIOD_START` | - | 统计开始日期 (ISO 8601) |
-| `PERIOD_END` | - | 统计结束日期 (ISO 8601) |
-| `REPORT_NUMBER` | `1` | 报告期号 |
+| `AI_PROVIDER` | AI 厂商 (如 `openai`, `anthropic`, `gemini`, `deepseek` 等) | `gemini` |
+| `AI_MODEL` | 模型名称 (如 `gemini-2.0-flash` 或完整路径 `deepseek/deepseek-chat`) | `gemini-2.0-flash` |
+| `AI_API_KEY` | 对应厂商的 API Key | `AIzaSy...` |
 
 ### 5. 准备输入数据
 
@@ -131,23 +116,19 @@ opencode
 
 ## 常见问题
 
-### Q: 提示 "GOOGLE_API_KEY" 未设置
+### Q: 提示 "AI API Key" 未设置
 
-确保 `.env` 文件中填写了有效的 Google API Key
+确保 `.env` 文件中填写了有效的 `AI_API_KEY`，且 `AI_PROVIDER` 配置正确。
 
 ### Q: API 调用失败
 
-1. 检查网络是否需要代理
-2. 如需代理，在 `.env` 中配置 `HTTP_PROXY` 和 `HTTPS_PROXY`
-3. 确认 API Key 有足够配额
+1. 检查 API Key 是否正确。
+2. 确认 API Key 有足够配额，且模型名称 (`AI_MODEL`) 填写正确。
+3. 如果在特定网络环境下，请确保网络连接正常。
 
 ### Q: 报告生成失败
 
 确保 `output/analyze-messages.json` 存在且格式正确
-
-### Q: 如何处理大文件？
-
-`analyze-messages` 会自动分批处理，每批 100 条消息，支持并行调用
 
 ## License
 
