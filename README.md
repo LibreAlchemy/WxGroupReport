@@ -5,7 +5,7 @@
 ## 功能特性
 
 - 📥 **数据导入**: 解析微信导出的 JSON 格式聊天记录
-- 🤖 **AI 分析**: 使用 Google Gemini API 进行成员评分与内容分类
+- 🤖 **AI 分析**: 使用 LiteLLM 调用大模型进行成员质量评分与内容分类
 - 📊 **报告生成**: 输出 Markdown 格式的群聊周期报告
 - 🏆 **活跃排行**: 自动识别高活跃度成员
 - ⚠️ **低质检测**: 自动识别低质量/低活跃成员
@@ -21,35 +21,32 @@
 
 ### 项目结构
 
-```
+```text
 WxGroupReport/
-├── .env.example              # 环境变量模板
-├── .gitignore
-├── requirements.txt          # Python 依赖
-├── .opencode/
+├── .env.example
+├── requirements.txt
+├── .agents/
 │   └── skills/
-│       ├── start/               # Skill 0: 流程启动
-│       ├── import-chat-data/    # Skill 1: 数据导入
+│       ├── start/
+│       ├── import-chat-data/
 │       │   └── scripts/
 │       │       ├── preprocessor.py
 │       │       └── apply_whitelist.py
-│       │
-│       ├── analyze-messages/    # Skill 2: AI 分析
+│       ├── analyze-messages/
 │       │   └── scripts/
-│       │       ├── analyze.py
-│       │       ├── api_client.py
-│       │       └── batcher.py
-│       │
-│       └── generate-report/    # Skill 3: 报告生成
-│           ├── template.md
+│       │       └── analyze.py
+│       └── generate-report/
+│           ├── references/
+│           │   ├── template.md
+│           │   └── low_quality_template.md
 │           └── scripts/
 │               └── generate_report.py
-│
-└── output/                 # 输出结果
-    ├── members/            # 成员文件
-    ├── group_info.json
+└── output/
+    ├── members/
+    ├── scores/
     ├── analyze-messages.json
-    └── report.md           # 最终报告
+    ├── report.md
+    └── low_quality_members.md
 ```
 
 ### 1. 克隆项目
@@ -89,19 +86,34 @@ cp .env.example .env
 | `AI_MODEL` | 模型名称 (如 `gemini-2.0-flash` 或完整路径 `deepseek/deepseek-chat`) | `gemini-2.0-flash` |
 | `AI_API_KEY` | 对应厂商的 API Key | `AIzaSy...` |
 
+常用可选项：
+
+| 变量 | 说明 | 默认值 |
+|------|------|--------|
+| `AI_BASE_URL` | OpenAI 兼容网关地址（按需） | - |
+| `MAX_ANALYZE_WORKERS` | 分析并发数 | `10` |
+| `ANALYZE_SLOW_API_SECONDS` | 慢请求日志阈值(秒) | `8` |
+| `OUTPUT_DIR` | 输出目录 | `output` |
+
 ### 5. 准备输入数据
 
 将微信聊天记录导出为 JSON 格式，放到任意位置。
 
-### 6. 生成报告
+### 6. 运行全流程（CLI）
 
 ```bash
-# 启动 OpenCode
-opencode
+# 1) 导入数据
+python .agents/skills/import-chat-data/scripts/preprocessor.py -i data/your-chat.json -o output
+python .agents/skills/import-chat-data/scripts/apply_whitelist.py -o output
 
-# 输入下面的提示词
-/start path/to/chat.json
+# 2) 分析成员消息
+python .agents/skills/analyze-messages/scripts/analyze.py -o output
+
+# 3) 生成报告
+python .agents/skills/generate-report/scripts/generate_report.py -o output
 ```
+
+如果使用 OpenCode，也可以通过 `/start path/to/chat.json` 执行同等流程。
 
 ## 白名单配置 (可选)
 
@@ -128,7 +140,7 @@ opencode
 
 ### Q: 报告生成失败
 
-确保 `output/analyze-messages.json` 存在且格式正确
+确保 `output/analyze-messages.json` 存在且格式正确。
 
 ## License
 
