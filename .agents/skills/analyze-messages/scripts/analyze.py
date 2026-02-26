@@ -1,7 +1,8 @@
 """
 消息分析脚本
-批量并行处理：从 output/members/ 读取，调用 Gemini 评分，输出到 output/scores/
+批量并行处理：从 output/members/ 读取，调用 AI SDK 评分，输出到 output/scores/
 支持增量重试和错误记录 (errors.json)
+支持通过环境变量配置不同模型厂商
 """
 
 import asyncio
@@ -11,7 +12,10 @@ import sys
 import glob
 import argparse
 from pathlib import Path
+from typing import List, Optional
 from dotenv import load_dotenv
+import litellm
+from pydantic import BaseModel, Field
 
 # 修复 Windows 控制台编码
 if sys.platform == "win32":
@@ -22,90 +26,82 @@ if sys.platform == "win32":
 
 load_dotenv()
 
+litellm.drop_params = True
+
 # 全局配置，将在 main 中更新
 OUTPUT_DIR = "output"
 MEMBERS_DIR = os.path.join(OUTPUT_DIR, "members")
 SCORES_DIR = os.path.join(OUTPUT_DIR, "scores")
 ERRORS_FILE = os.path.join(OUTPUT_DIR, "errors.json")
-MODEL = os.getenv("MODEL", "gemini-2.0-flash")
-API_KEY = os.getenv("GOOGLE_API_KEY")
-MAX_WORKERS = 5  # 并发数
-MAX_MESSAGES_PER_CALL = 100  # 单次调用最大消息数
-MAX_TOTAL_LENGTH = 15000  # 单次调用最大字符数
 
-GEMINI_API_URL = (
-    f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL}:generateContent"
-)
+# AI 配置
+AI_PROVIDER = os.getenv("AI_PROVIDER", "google")
+AI_MODEL_NAME = os.getenv("AI_MODEL", "gemini-2.0-flash")
+AI_API_KEY = os.getenv("AI_API_KEY")
+AI_BASE_URL = os.getenv("AI_BASE_URL")
 
+# 构造 litellm 模型名称
+if "/" in AI_MODEL_NAME:
+    LITELLM_MODEL = AI_MODEL_NAME
+else:
+    # 兼容旧配置，如果是 gemini/google 则统一为 gemini/
+    provider = AI_PROVIDER.lower()
+    if provider == "google":
+        provider = "gemini"
+    LITELLM_MODEL = f"{provider}/{AI_MODEL_NAME}"
 
-async def call_gemini(prompt: str) -> dict:
-    """调用 Gemini API"""
-    import aiohttp
-    import re
+# 并发数
+MAX_WORKERS = 5
+# 打分阈值
+LOW_SCORE_THRESHOLD = 0.5
+# 发言数阈值
+LOW_MSG_THRESHOLD = 10
 
-    url = f"{GEMINI_API_URL}?key={API_KEY}"
-    payload = {
-        "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"temperature": 0.3},
-    }
-
-    proxy = os.getenv("HTTP_PROXY") or os.getenv("HTTPS_PROXY")
-
-    async with aiohttp.ClientSession() as session:
-        async with session.post(url, json=payload, proxy=proxy) as response:
-            if response.status != 200:
-                if response.status == 429:
-                    raise RuntimeError(f"API error: 429 (Rate Limit)")
-                raise RuntimeError(f"API error: {response.status}")
-            
-            result = await response.json()
-            if "candidates" not in result or not result["candidates"]:
-                raise RuntimeError(f"API error: No candidates in response. {json.dumps(result)}")
-                
-            text = result["candidates"][0]["content"]["parts"][0]["text"]
-
-            text = text.strip()
-            if text.startswith("```"):
-                text = re.sub(r"^```[a-z]*\n?", "", text)
-                text = re.sub(r"\n?```$", "", text)
-
-            match = re.search(r"\{[\s\S]*\}", text)
-            if match:
-                return json.loads(match.group())
-            raise ValueError(f"Cannot parse JSON from text: {text[:100]}...")
+class Highlight(BaseModel):
+    type: str = Field(description="文章|GitHub|见解|机会 (article|github|insight|opportunity)")
+    content: str = Field(description="高亮内容的简短描述")
+    url: str = Field(default="", description="相关的 URL 链接")
 
 
-def estimate_content_length(messages: list) -> int:
-    """估算消息总长度（字符数）"""
-    total = 0
-    for m in messages:
-        content = m.get("content", "")
-        total += len(content)
-        total += len(str(m.get("timestamp", "")))
-    return total
+class Stats(BaseModel):
+    resource: int = Field(default=0, description="资源分享")
+    technical: int = Field(default=0, description="技术探讨")
+    qa: int = Field(default=0, description="问答/求助")
+    discussion: int = Field(default=0, description="一般讨论")
+    insight: int = Field(default=0, description="深度见解")
+    opportunity: int = Field(default=0, description="合作机会")
+    reply: int = Field(default=0, description="回复他人")
 
 
-def needs_separate_processing(messages: list) -> bool:
-    """判断是否需要单独处理（消息数过多或总长度过长）"""
-    return (
-        len(messages) > MAX_MESSAGES_PER_CALL
-        or estimate_content_length(messages) > MAX_TOTAL_LENGTH
-    )
+class AnalysisResult(BaseModel):
+    summary: str = Field(description="成员消息的总结（30-100字）")
+    stats: Stats = Field(description="各类型消息的数量统计")
+    highlights: List[Highlight] = Field(default_factory=list, description="消息中的亮点内容")
 
 
 def build_prompt(wxid: str, nickname: str, messages: list) -> str:
     """构建评分 prompt"""
+    # 过滤掉以 "#接龙" 开头的消息
+    filtered_messages = [
+        m for m in messages if not m.get("content", "").strip().startswith("#接龙")
+    ]
+
     msgs_text = "\n".join(
-        [f"{i}. {m.get('content', '')}" for i, m in enumerate(messages)]
+        [f"{i}. {m.get('content', '')}" for i, m in enumerate(filtered_messages)]
     )
 
     return f"""## 任务
-分析以下群成员的消息，给出总结和评分。
+分析以下微信群成员的消息，给出总结和评分。
 
-## 成员: {nickname} ({len(messages)}条消息)
+## 成员: {nickname} ({len(filtered_messages)}条消息)
 
-## 消息
+## 消息内容
 {msgs_text}
+
+## 注意事项
+1. 总结要客观准确，涵盖成员的主要言论特点。
+2. stats 统计应基于消息内容进行合理分类。
+3. highlights 仅记录有价值的内容（如分享的文章、GitHub项目、深刻的见解或明确的合作机会）。
 
 ## 输出格式 (JSON)
 {{
@@ -113,7 +109,7 @@ def build_prompt(wxid: str, nickname: str, messages: list) -> str:
   "stats": {{"resource": 0, "technical": 0, "qa": 0, "discussion": 0, "insight": 0, "opportunity": 0, "reply": 0}},
   "highlights": [{{"type": "article|github|insight|opportunity", "content": "", "url": ""}}]
 }}
-只返回JSON。"""
+"""
 
 
 async def analyze_member(sem, wxid: str, nickname: str, messages: list) -> dict:
@@ -134,9 +130,29 @@ async def analyze_member(sem, wxid: str, nickname: str, messages: list) -> dict:
 
         try:
             prompt = build_prompt(wxid, nickname, messages)
-            result = await call_gemini(prompt)
-            stats = result.get("stats", {})
-            total = sum(stats.values()) if stats else 0
+            
+            # 使用 litellm 进行结构化输出
+            response = await litellm.acompletion(
+                model=LITELLM_MODEL,
+                messages=[{"role": "user", "content": prompt}],
+                response_format=AnalysisResult,
+                api_key=AI_API_KEY,
+                base_url=AI_BASE_URL,
+            )
+            
+            # 解析结果
+            content = response.choices[0].message.content
+            
+            # 处理可能的 markdown 代码块
+            if content.startswith("```json"):
+                content = content.replace("```json", "", 1).rsplit("```", 1)[0].strip()
+            elif content.startswith("```"):
+                content = content.replace("```", "", 1).rsplit("```", 1)[0].strip()
+            
+            result = AnalysisResult.model_validate_json(content)
+            
+            stats_dict = result.stats.model_dump()
+            total = sum(stats_dict.values())
             avg = total / len(messages) if messages else 0
 
             return {
@@ -145,12 +161,13 @@ async def analyze_member(sem, wxid: str, nickname: str, messages: list) -> dict:
                 "messageCount": len(messages),
                 "totalScore": total,
                 "averageScore": round(avg, 2),
-                "summary": result.get("summary", ""),
-                "stats": stats,
-                "highlights": result.get("highlights", []),
+                "summary": result.summary,
+                "stats": stats_dict,
+                "highlights": [h.model_dump() for h in result.highlights],
                 "status": "normal",
             }
         except Exception as e:
+            print(f"❌ 分析成员 {nickname} ({wxid}) 失败: {str(e)}", file=sys.stderr)
             return {
                 "wxid": wxid,
                 "nickname": nickname,
@@ -196,11 +213,13 @@ async def main():
     SCORES_DIR = os.path.join(OUTPUT_DIR, "scores")
     ERRORS_FILE = os.path.join(OUTPUT_DIR, "errors.json")
 
-    if not API_KEY:
-        print("❌ 错误: 未设置 GOOGLE_API_KEY 环境变量", file=sys.stderr)
+    if not AI_API_KEY:
+        print(f"❌ 错误: 未设置 AI API Key (Model: {LITELLM_MODEL})", file=sys.stderr)
         return
 
     Path(SCORES_DIR).mkdir(parents=True, exist_ok=True)
+
+    print(f"🤖 使用模型: {LITELLM_MODEL}")
 
     while True:
         # 1. 识别待处理成员
@@ -318,8 +337,6 @@ async def main():
             all_highlights.append(h)
 
     # 计算低质成员
-    LOW_SCORE_THRESHOLD = 0.5
-    LOW_MSG_THRESHOLD = 15
 
     low_quality_members = []
     for r in results:

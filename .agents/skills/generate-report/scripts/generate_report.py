@@ -100,6 +100,23 @@ def to_report_context(processed, analysis, config):
         period_start = config.get("period", {}).get("start") or "-"
         period_end = config.get("period", {}).get("end") or "-"
 
+    # If period is not provided, try to extract from processed data
+    if period_start == "-" or period_end == "-":
+        all_timestamps = []
+        members = processed.get("members", {})
+        for m_data in members.values():
+            for msg in m_data.get("messages", []):
+                ts = msg.get("timestamp")
+                if ts:
+                    all_timestamps.append(ts)
+
+        if all_timestamps:
+            all_timestamps.sort()
+            if period_start == "-":
+                period_start = all_timestamps[0].split("T")[0]
+            if period_end == "-":
+                period_end = all_timestamps[-1].split("T")[0]
+
     group_name = (
         processed.get("group_info", {}).get("name")
         or processed.get("meta", {}).get("name")
@@ -110,7 +127,7 @@ def to_report_context(processed, analysis, config):
         "group_name": safe_text(group_name),
         "period_start": safe_text(period_start),
         "period_end": safe_text(period_end),
-        "generated_at": datetime.now().isoformat(timespec="seconds"),
+        "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "report_number": config.get("report_number", 1),
         "total_members": members_total,
         "active_members": active_members,
