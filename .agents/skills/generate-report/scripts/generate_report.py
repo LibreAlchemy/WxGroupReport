@@ -330,6 +330,9 @@ def to_report_context(processed, analysis, config):
         or ""
     )
 
+    # 与模板“本期看点”保持一致：只统计会被展示的三类条目
+    displayed_highlights_count = len(articles) + len(github_items) + len(insights)
+
     return {
         "group_name": safe_text(group_name),
         "period_start": safe_text(period_start),
@@ -339,7 +342,7 @@ def to_report_context(processed, analysis, config):
         "total_members": members_total,
         "active_members": active_members,
         "low_quality_count": len(low_quality),
-        "highlights_count": len(highlights),
+        "highlights_count": displayed_highlights_count,
         "top_members": top_members,
         "articles": articles,
         "github_items": github_items,

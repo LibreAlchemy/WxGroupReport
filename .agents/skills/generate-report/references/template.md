@@ -1,21 +1,25 @@
-# 麦田精选（第 {{ report_number }} 期）
+# 麦田精选
 
+**期号**：第 {{ report_number }} 期
 **统计周期**：{{ period_start }} ~ {{ period_end }}
+
+# 数据统计
+
 **总成员数**：{{ total_members }}
 **活跃成员数**：{{ active_members }}
-**生成时间**：{{ generated_at }}
+**精彩内容数**：{{ highlights_count }}
 
-# 本期排行榜（Top10）
+# 本期排行
 
-| 排名 | 成员 | 发言数 | 综合分 |
-|------|------|--------|--------|
+| 排名 | 成员 | 综合分 |
+|------|------|--------|
 {%- for member in top_members %}
-| {{ loop.index }} | {{ member.name | replace("|", "\\|") }} | {{ member.msg_count }} | {{ "%.1f"|format(member.activity_score) }} |
+| {{ loop.index }} | {{ member.name | replace("|", "\\|") }} | {{ "%.1f"|format(member.activity_score) }} |
 {%- else %}
-| - | 暂无 | 0 | 0.0 |
+| - | 暂无 | 0.0 |
 {%- endfor %}
 
-# 本期精彩内容
+# 本期看点
 {% if articles %}
 {%- set ns = namespace(has_article_with_url=false, has_official_no_url=false) %}
 {%- for item in articles %}
