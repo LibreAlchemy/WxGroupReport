@@ -1,57 +1,57 @@
 ---
 name: import-chat-data
-description: Use when processing WeChat export JSON into member files and applying whitelist.md matches (wxid-first).
+description: 处理微信群导出 JSON，拆分为成员文件并应用 `whitelist.md` 匹配（wxid 优先）。用户要求“导入群聊数据”“重建 members 数据”时使用。
 ---
 
-# Skill: import-chat-data
+# 技能：import-chat-data
 
-## Overview
+## 概述
 
-Process WeChat export JSON into per-member JSON files, then apply whitelist marks.
+将微信群导出 JSON 处理为按成员拆分的 JSON 文件，并应用白名单标记。
 
-## Workflow
+## 工作流
 
-Scripts support both command-line arguments and environment variables (via `.env`).
+脚本支持命令行参数与环境变量。
 
-### Step 1: Preprocess
-
-```bash
-python ".opencode/skills/import-chat-data/scripts/preprocessor.py" -i path/to/input.json -o output
-```
-
-**Arguments**:
-- `-i, --input`: Input JSON file path (overrides `INPUT_PATH`)
-- `-o, --output`: Output directory (overrides `OUTPUT_DIR`, default: `output`)
-- `--include-media`: Include media messages
-- `--no-join-time`: Do not extract join time
-- `--no-individual`: Do not save individual member files
-
-### Step 2: Apply Whitelist
+### 第一步：预处理
 
 ```bash
-python ".opencode/skills/import-chat-data/scripts/apply_whitelist.py" -o output
+python3 ".agents/skills/import-chat-data/scripts/preprocessor.py" -i path/to/input.json -o output
 ```
 
-**Arguments**:
-- `-o, --output`: Output directory (overrides `OUTPUT_DIR`, default: `output`)
+**参数**：
+- `-i, --input`：输入 JSON 文件路径（覆盖 `INPUT_PATH`）
+- `-o, --output`：输出目录（覆盖 `OUTPUT_DIR`，默认 `output`）
+- `--include-media`：包含媒体消息
+- `--no-extract-join-time`：不提取入群时间（默认开启提取）
+- `--no-save-individual`：不保存成员独立文件（默认开启保存）
 
-**Note**: Run scripts and check console output for file locations.
+### 第二步：应用白名单
 
-## Error Handling
+```bash
+python3 ".agents/skills/import-chat-data/scripts/apply_whitelist.py" -o output
+```
 
-- Missing input file: error
-- Missing whitelist file: skip whitelist step
-- JSON parse error: skip that file
+**参数**：
+- `-o, --output`：输出目录（覆盖 `OUTPUT_DIR`，默认 `output`）
 
-## Quick Reference
+**说明**：执行后根据控制台输出确认产物文件位置。
 
-All scripts are in the `scripts/` subdirectory of this skill.
+## 错误处理
 
-Agent execution: 
-- Use this `SKILL.md` file's path as SKILL_DIR
-- Use `${SKILL_DIR}/scripts/<script-name>.py` as script path.
+- 缺少输入文件：报错并退出
+- 缺少白名单文件：跳过白名单步骤
+- JSON 解析失败：跳过该文件并继续
 
-| Script | Purpose |
-|--------|---------|
-| scripts/preprocessor.py | Preprocess chat data, split by member |
-| scripts/apply_whitelist.py | Apply whitelist marks to members |
+## 快速参考
+
+脚本均位于本技能目录下的 `scripts/` 子目录。
+
+执行约定：
+- 使用当前 `SKILL.md` 所在路径作为 `SKILL_DIR`
+- 使用 `${SKILL_DIR}/scripts/<script-name>.py` 作为脚本路径
+
+| 脚本 | 用途 |
+|------|------|
+| scripts/preprocessor.py | 预处理群聊数据并按成员拆分 |
+| scripts/apply_whitelist.py | 为成员应用白名单标记 |

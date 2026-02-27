@@ -23,29 +23,19 @@
 
 ```text
 WxGroupReport/
-├── .env.example
-├── requirements.txt
+├── .env.example              # 环境变量模板
+├── .gitignore
+├── requirements.txt          # Python 依赖
 ├── .agents/
-│   └── skills/
-│       ├── start/
-│       ├── import-chat-data/
-│       │   └── scripts/
-│       │       ├── preprocessor.py
-│       │       └── apply_whitelist.py
-│       ├── analyze-messages/
-│       │   └── scripts/
-│       │       └── analyze.py
-│       └── generate-report/
-│           ├── references/
-│           │   ├── template.md
-│           │   └── low_quality_template.md
-│           └── scripts/
-│               └── generate_report.py
-└── output/
-    ├── members/
-    ├── scores/
-    ├── analyze-messages.json
-    ├── report.md
+│   └── skills/               # Agent Skills
+├── data/                     # 输入数据（建议位置）
+└── output/                   # 输出结果
+    ├── imported.json         # 预处理数据
+    ├── members/              # 成员消息文件
+    ├── scores/               # 成员打分结果
+    ├── analyze.json          # 全量分析结果（含成员分数和精彩内容）
+    ├── report.md             # 产出报告
+    ├── report_refined.md     # 精修后的报告（精彩内容优化）
     └── low_quality_members.md
 ```
 
@@ -140,7 +130,7 @@ python .agents/skills/generate-report/scripts/generate_report.py -o output
 
 ### Q: 报告生成失败
 
-确保 `output/analyze-messages.json` 存在且格式正确。
+确保 `output/analyze.json` 存在且格式正确
 
 ## License
 

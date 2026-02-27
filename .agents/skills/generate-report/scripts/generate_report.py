@@ -52,6 +52,34 @@ def sanitize_github_url(url):
     return ""
 
 
+def is_invalid_article_title(title: str) -> bool:
+    text = safe_text(title)
+    if not text:
+        return True
+
+    lowered = text.lower()
+    invalid_titles = {
+        "文章",
+        "链接",
+        "link",
+        "article",
+    }
+    if lowered in invalid_titles:
+        return True
+
+    mini_program_keywords = (
+        "小程序",
+        "mini program",
+        "miniprogram",
+        "微信小程序",
+        "wxapp",
+    )
+    if any(keyword in lowered for keyword in mini_program_keywords):
+        return True
+
+    return False
+
+
 def normalize_min_max(value, min_value, max_value):
     if max_value <= min_value:
         return 0.5
@@ -250,7 +278,9 @@ def to_report_context(processed, analysis, config):
         author = ensure_table_safe(item.get("author") or "")
         if item_type == "article":
             url = sanitize_url(item.get("url") or "")
-            title = safe_text(item.get("content") or url or "文章")
+            title = safe_text(item.get("content") or "")
+            if is_invalid_article_title(title):
+                continue
             articles.append({"title": title, "url": url, "author": author})
         elif item_type == "github":
             url = sanitize_github_url(item.get("url") or "")
@@ -352,11 +382,11 @@ def normalize_heading_spacing(text):
     return out
 
 
-def select_latest_processed(output_dir: Path) -> Path:
-    candidates = list(output_dir.glob("*_processed.json"))
-    if not candidates:
-        raise SystemExit(f"missing processed file in {output_dir}")
-    return max(candidates, key=lambda path: path.stat().st_mtime)
+def select_imported_file(output_dir: Path) -> Path:
+    imported_path = output_dir / "imported.json"
+    if not imported_path.exists():
+        raise SystemExit(f"missing imported file: {imported_path}")
+    return imported_path
 
 
 def main():
@@ -386,8 +416,8 @@ def main():
 
     skill_dir = Path(__file__).resolve().parent.parent
     output_dir = Path(output_dir_env)
-    processed_path = select_latest_processed(output_dir)
-    analysis_path = output_dir / "analyze-messages.json"
+    processed_path = select_imported_file(output_dir)
+    analysis_path = output_dir / "analyze.json"
     template_path = skill_dir / "references" / "template.md"
     output_path = output_dir / "report.md"
     low_quality_template_path = Path(low_quality_template_env)

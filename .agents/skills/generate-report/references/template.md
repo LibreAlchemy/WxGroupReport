@@ -1,18 +1,11 @@
-# 群聊报告
+# 麦田精选（第 {{ report_number }} 期）
 
-**统计周期**: {{ period_start }} ~ {{ period_end }}
-**生成时间**: {{ generated_at }}
-**报告期号**: 第 {{ report_number }} 期
+**统计周期**：{{ period_start }} ~ {{ period_end }}
+**总成员数**：{{ total_members }}
+**活跃成员数**：{{ active_members }}
+**生成时间**：{{ generated_at }}
 
-# 数据概览
-
-| 指标 | 数值 |
-|------|------|
-| 总成员数 | {{ total_members }} |
-| 活跃成员数 | {{ active_members }} |
-| 精彩内容数 | {{ highlights_count }} |
-
-# 本期排行榜 (Top10)
+# 本期排行榜（Top10）
 
 | 排名 | 成员 | 发言数 | 综合分 |
 |------|------|--------|--------|
@@ -33,7 +26,7 @@
 {%- endif %}
 {%- endfor %}
 {% if ns.has_official_no_url %}
-## 公众号文章
+## 📚 公众号 & 文章
 {%- for item in articles %}
 {%- if not item.url %}
 - 《{{ item.title }}》 @{{ item.author | replace("|", "\\|") }}
@@ -41,7 +34,7 @@
 {%- endfor %}
 {% endif %}
 {% if ns.has_article_with_url %}
-## 精选分享
+## 🤩 精选分享
 {%- for item in articles %}
 {%- if item.url %}
 - [{{ item.title }}]({{ item.url }}) @{{ item.author | replace("|", "\\|") }}
@@ -50,20 +43,14 @@
 {% endif %}
 {% endif %}
 {% if github_items %}
-## Github 项目
+## 💻 Github 项目
 {%- for item in github_items %}
 - [{{ item.repo }}]({{ item.url }}) @{{ item.author | replace("|", "\\|") }}
 {%- endfor %}
 {% endif %}
 {% if insights %}
-## 原创见解
+## 💡 原创心得
 {%- for item in insights %}
 - "{{ item.content }}" — @{{ item.author | replace("|", "\\|") }}
-{%- endfor %}
-{% endif %}
-{% if opportunities %}
-## 机会分享
-{%- for item in opportunities %}
-- {{ item.summary }} — @{{ item.author | replace("|", "\\|") }}
 {%- endfor %}
 {% endif %}
