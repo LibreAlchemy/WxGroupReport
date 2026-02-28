@@ -236,7 +236,7 @@ def calculate_statistics(
 
 
 def save_processed_data(
-    data: ProcessedData, output_dir: Path, group_name: str, save_individual: bool = True
+    data: ProcessedData, output_dir: Path, save_individual: bool = True
 ) -> Dict[str, Any]:
     """
     保存处理后的数据
@@ -246,7 +246,7 @@ def save_processed_data(
     """
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    main_file = output_dir / f"{group_name}_processed.json"
+    main_file = output_dir / "imported.json"
     with open(main_file, "w", encoding="utf-8") as f:
         json.dump(dataclasses.asdict(data), f, ensure_ascii=False, indent=2)
 
@@ -328,7 +328,7 @@ def preprocess_chat_data(
     )
 
     output_files = save_processed_data(
-        result, Path(output_dir), group_info.name, save_individual=save_individual
+        result, Path(output_dir), save_individual=save_individual
     )
 
     return result, output_files
@@ -347,8 +347,8 @@ def load_config() -> Dict[str, Any]:
     parser.add_argument("-i", "--input", help="输入 JSON 文件路径 (INPUT_PATH)")
     parser.add_argument("-o", "--output", default="output", help="输出目录 (OUTPUT_DIR)")
     parser.add_argument("--include-media", action="store_true", help="是否包含媒体消息")
-    parser.add_argument("--no-join-time", action="store_true", help="不提取入群时间")
-    parser.add_argument("--no-individual", action="store_true", help="不保存成员单独文件")
+    parser.add_argument("--no-extract-join-time", action="store_true", help="不提取入群时间")
+    parser.add_argument("--no-save-individual", action="store_true", help="不保存成员单独文件")
     
     args = parser.parse_args()
 
@@ -363,8 +363,8 @@ def load_config() -> Dict[str, Any]:
 
     output_dir = args.output or os.getenv("OUTPUT_DIR", "output")
     include_media = args.include_media or parse_bool(os.getenv("INCLUDE_MEDIA"), default=False)
-    include_join_time = not args.no_join_time and parse_bool(os.getenv("INCLUDE_JOIN_TIME"), default=True)
-    save_individual = not args.no_individual and not parse_bool(os.getenv("NO_INDIVIDUAL"), default=False)
+    include_join_time = not args.no_extract_join_time
+    save_individual = not args.no_save_individual
 
     return {
         "input_path": input_path,

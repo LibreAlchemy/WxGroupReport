@@ -1,22 +1,22 @@
 ---
 name: analyze-messages
-description: Analyze processed WeChat member messages with LLM, output member scores and highlights.
+description: 使用大模型并发分析已处理的微信群成员消息，输出成员评分与精彩内容汇总。用户要求“分析成员发言”“生成 analyze.json”“重跑消息分析”时使用。
 ---
 
-# Skill: analyze-messages
+# 技能：analyze-messages
 
-## Overview
+## 概述
 
 并行分析成员消息，输出成员级总结、质量分和精彩内容。
 
-## When to Use
+## 使用场景
 
 - 需要对成员发言做批量 AI 分析
-- 需要输出 `output/analyze-messages.json`
+- 需要输出 `output/analyze.json`
 
-## Input / Output
+## 输入与输出
 
-### Input (AnalyzeInput)
+### 输入（AnalyzeInput）
 
 ```ts
 interface AnalyzeInput {
@@ -30,7 +30,7 @@ interface AnalyzeInput {
 }
 ```
 
-### Output (AnalyzeOutput)
+### 输出（AnalyzeOutput）
 
 ```ts
 interface AnalyzeOutput {
@@ -65,7 +65,7 @@ interface MemberScore {
 }
 ```
 
-## 错误处理与重试机制
+## 错误处理与重试
 
 脚本使用增量重试：
 
@@ -73,7 +73,7 @@ interface MemberScore {
 2. **错误记录**: 分析失败的成员会被记录在 `output/errors.json` 中，包含错误原因和消息计数。
 3. **自动重试**: 脚本会自动循环读取 `errors.json` 并重试其中的成员，直到所有成员成功分析或手动中断。
 4. **清理机制**: 成员成功后自动从 `errors.json` 移除；若已有成功 score，也会在扫描阶段清理残留错误项。
-5. **汇总延迟**: 全部处理完成后生成 `output/analyze-messages.json`。
+5. **汇总延迟**: 全部处理完成后生成 `output/analyze.json`。
 
 ## 评分规则
 
@@ -81,6 +81,10 @@ interface MemberScore {
 
 - 模型输出 `quality_score`（0-100）
 - 系统写入 `qualityScore`
+
+### 有效消息过滤
+
+- 过滤掉以 `#接龙` 开头的消息
 
 ### 统计维度（stats）
 
@@ -92,7 +96,7 @@ interface MemberScore {
 - `opportunity` 合作机会
 - `reply` 回复他人
 
-## API Prompt 模板
+## Prompt 口径
 
 ```
 ## 任务
@@ -105,6 +109,16 @@ interface MemberScore {
 
 ## 消息列表
 {messages}
+
+## highlights.type 定义
+- article: 公众号/博客/新闻/技术文章。`content` 必须是文章原始标题；若无法确定原始标题，`content` 置空字符串。
+- github: GitHub 仓库/代码项目。`content` 可写仓库名；若仓库名不明确，可根据对话内容总结仓库描述写入 `content`。
+- insight: 原创观点/经验总结/判断结论。`content` 填观点原文或摘要。
+- opportunity: 招聘/内推/合作招募/项目招募等机会信息。`content` 填机会摘要。
+
+## highlights.url 规则
+- 仅当消息中存在明确链接时填写
+- 无明确链接时置空字符串
 
 ## 输出格式 (JSON)
 {
@@ -126,7 +140,7 @@ interface MemberScore {
 1. **加载成员文件**: 读取 `output/members/*.json`
 2. **并发调用**: 按成员并发调用模型
 3. **增量写入**: 输出 `output/scores/*.json` 和 `output/errors.json`
-4. **汇总结果**: 生成 `output/analyze-messages.json`
+4. **汇总结果**: 生成 `output/analyze.json`
 
 ## 文件结构
 
@@ -137,18 +151,19 @@ interface MemberScore {
     └── analyze.py          # 主分析脚本
 ```
 
-## Script Usage
+## 脚本用法
 
-Use `.agents/skills/analyze-messages/scripts/analyze.py` to analyze messages.
-Scripts support both command-line arguments and environment variables (via `.env`).
+使用 `.agents/skills/analyze-messages/scripts/analyze.py` 执行分析。
+脚本支持命令行参数与环境变量。
 
-### Command Line Arguments
+### 命令行参数
 
-- `-o, --output`: Output directory (overrides `OUTPUT_DIR`, default: `output`)
+- `-o, --output`：输出目录（覆盖 `OUTPUT_DIR`，默认 `output`）
 
-### Environment Variables
+### 环境变量
 
 - `OUTPUT_DIR` (default `output`)
 - `AI_PROVIDER` / `AI_MODEL` / `AI_API_KEY` / `AI_BASE_URL`
 - `MAX_ANALYZE_WORKERS` (default `10`)
 - `ANALYZE_SLOW_API_SECONDS` (default `8`)
+- `ANALYZE_LOG_INFLIGHT` (default `1`)

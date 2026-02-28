@@ -1,37 +1,37 @@
 ---
 name: generate-report
-description: Generate Markdown reports (`report.md` and `low_quality_members.md`) from analyzed data.
+description: 基于分析结果生成 Markdown 报告（`report.md` 与 `low_quality_members.md`）。用户要求“生成报告”“更新 report.md”“重出低质成员名单”时使用。
 ---
-# Skill: generate-report
+# 技能：generate-report
 
-## Overview
+## 概述
 
-Generate two Markdown files with Jinja2 templates:
-- main report: `output/report.md`
-- low-quality report: `output/low_quality_members.md`
+使用 Jinja2 模板生成两份 Markdown：
+- 主报告：`output/report.md`
+- 低质成员报告：`output/low_quality_members.md`
 
-## When to Use
+## 使用场景
 
-- user asks to generate a report
-- need Markdown output from analyzed data
+- 用户要求生成或刷新报告
+- 需要将 `analyze.json` 渲染为 Markdown
 
-## Workflow (must follow)
+## 工作流（必须按顺序）
 
-1. Load templates from this skill:
+1. 加载技能模板文件：
    - `references/template.md`
    - `references/low_quality_template.md`
-2. Prepare template context:
-   - period / generated time / report number
-   - summary counts: `total_members`, `active_members`, `low_quality_count`, `highlights_count`
-   - `top_members`: top 10 by computed activity score
-   - highlights split by type
-   - `low_quality_members` and grouped `low_quality_groups`
-3. Render the template with the context.
-4. Write both output files.
+2. 组装模板上下文：
+   - 周期、生成时间、期数
+   - 汇总字段：`total_members`、`active_members`、`low_quality_count`、`highlights_count`
+   - `top_members`：按综合分计算后的前 10
+   - `highlights` 按类型分组
+   - `low_quality_members` 与 `low_quality_groups`
+3. 使用上下文渲染模板。
+4. 写入两份输出文件。
 
-## Input / Output
+## 输入与输出
 
-### Input (ReportInput)
+### 输入（ReportInput）
 
 ```ts
 interface ReportInput {
@@ -44,7 +44,7 @@ interface ReportInput {
 }
 ```
 
-### Output (ReportOutput)
+### 输出（ReportOutput）
 
 ```ts
 interface ReportOutput {
@@ -60,28 +60,28 @@ interface ReportOutput {
 }
 ```
 
-## Template
+## 模板
 
-Use templates in `references/` directory.
+使用 `references/` 目录下的模板文件。
 
-## Script
+## 脚本
 
-Use `.agents/skills/generate-report/scripts/generate_report.py` to render reports from JSON inputs.
-Scripts support both command-line arguments and environment variables (via `.env`).
+使用 `.agents/skills/generate-report/scripts/generate_report.py` 从 JSON 输入生成报告。
+脚本支持命令行参数与环境变量。
 
-### Command Line Arguments
+### 命令行参数
 
-- `-o, --output`: Output directory (overrides `OUTPUT_DIR`, default: `output`)
-- `--low-quality-template`: Optional low-quality template path
-- `--low-quality-output`: Optional low-quality output path
+- `-o, --output`：输出目录（覆盖 `OUTPUT_DIR`，默认 `output`）
+- `--low-quality-template`：低质成员模板路径（可选）
+- `--low-quality-output`：低质成员报告输出路径（可选）
 
-### Environment Variables
+### 环境变量
 
-- `OUTPUT_DIR` (default `output`)
-- `LOW_QUALITY_TEMPLATE_PATH` (optional override, default uses script sibling `references/low_quality_template.md`)
-- `LOW_QUALITY_OUTPUT_PATH` (optional override, default `output/low_quality_members.md`)
+- `OUTPUT_DIR`（默认 `output`）
+- `LOW_QUALITY_TEMPLATE_PATH`（可选覆盖，默认脚本同级 `references/low_quality_template.md`）
+- `LOW_QUALITY_OUTPUT_PATH`（可选覆盖，默认 `output/low_quality_members.md`）
 
-## Notes
+## 说明
 
-- Main template path is fixed in script and resolves from script location.
-- Do not emit large JSON blobs in chat output.
+- 主模板路径在脚本中固定，按脚本相对路径解析。
+- 对外回复时不要输出大段 JSON 原文。

@@ -2,7 +2,6 @@
 
 **统计周期**: {{ period_start }} ~ {{ period_end }}
 **生成时间**: {{ generated_at }}
-**报告期号**: 第 {{ report_number }} 期
 
 {%- for group in low_quality_groups %}
 ## {{ group.title }}（{{ group.count }}人）

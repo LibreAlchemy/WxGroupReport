@@ -1,0 +1,410 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{{title_main}}</title>
+    <style>
+      :root {
+        --bg: #f1f3f7;
+        --text: #1f1f1f;
+        --muted: #8a8a8a;
+        --card: #ffffff;
+        --panel: #f5f6f7;
+        --group: #f1f1f2;
+        --insight: #f7f7f7;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family: "IBM Plex Sans", Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      .page {
+        width: 100%;
+        max-width: 100%;
+        margin: 0 auto;
+        padding: 16px 14px 20px;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+      }
+
+      @media (min-width: 768px) {
+        .page {
+          max-width: 520px;
+          padding: 20px 18px 24px;
+        }
+      }
+
+      @media (min-width: 1200px) {
+        .page {
+          max-width: 580px;
+        }
+      }
+
+      .header {
+        text-align: center;
+        padding: 12px 0;
+        border-radius: 12px;
+      }
+
+      .issue {
+        margin: 0;
+        font-size: 16px;
+        font-weight: 500;
+        color: var(--muted);
+      }
+
+      .title {
+        margin: 2px 0 0;
+        font-size: 34px;
+        font-weight: 600;
+        letter-spacing: -0.5px;
+      }
+
+      .period {
+        margin: 4px 0 0;
+        font-size: 12px;
+        font-weight: 500;
+        letter-spacing: 0.2px;
+        color: var(--muted);
+      }
+
+      .stats {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+      }
+
+      .stat {
+        border-radius: 14px;
+        padding: 12px;
+      }
+
+      .stat:first-child {
+        background: #f1e6da;
+      }
+
+      .stat:last-child {
+        background: #e9be9e;
+      }
+
+      .stat-label {
+        margin: 0;
+        font-size: 11px;
+        font-weight: 500;
+        letter-spacing: 1px;
+        color: #6f5a49;
+      }
+
+      .stat-value {
+        margin: 6px 0 0;
+        font-size: 30px;
+        font-weight: 600;
+        line-height: 1;
+        letter-spacing: -0.5px;
+        color: #2b2118;
+      }
+
+      .card {
+        background: var(--card);
+        border-radius: 14px;
+        padding: 14px;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+      }
+
+      .card-title {
+        margin: 0 0 10px;
+        font-size: 18px;
+        font-weight: 600;
+        letter-spacing: -0.3px;
+      }
+
+      .rank-table {
+        background: var(--panel);
+        border-radius: 10px;
+        padding: 8px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .rank-row {
+        position: relative;
+        height: 24px;
+      }
+
+      .rank-track,
+      .rank-progress {
+        position: absolute;
+        left: 20px;
+        top: 1px;
+        height: 22px;
+        border-radius: 8px;
+      }
+
+      .rank-track {
+        right: 4px;
+        width: auto;
+        background: #f5f2ec;
+        overflow: hidden;
+      }
+
+      .rank-progress {
+        left: 0;
+        top: 0;
+        height: 100%;
+        width: var(--rank-width, 70%);
+        max-width: 100%;
+        background: var(--rank-fill, rgba(227, 154, 115, 0.35));
+      }
+
+      .rank-content {
+        position: relative;
+        z-index: 1;
+        height: 24px;
+        display: grid;
+        grid-template-columns: 18px 1fr 40px;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .rank-medal {
+        font-size: 14px;
+        font-weight: 700;
+      }
+
+      .rank-name {
+        font-size: 14px;
+        font-weight: 600;
+        color: #0f172a;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .rank-score {
+        text-align: right;
+        font-size: 12px;
+        font-weight: 600;
+        color: #0f172a;
+      }
+
+      .topic-head {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin: 8px 0 6px;
+      }
+
+      .topic-bar {
+        width: 4px;
+        height: 12px;
+        border-radius: 2px;
+      }
+
+      .topic-title {
+        margin: 0;
+        font-size: 14px;
+        font-weight: 600;
+        letter-spacing: 2px;
+      }
+
+      .group {
+        background: var(--group);
+        border-radius: 16px;
+        padding: 10px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .item {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+
+      .item-title {
+        font-size: 11px;
+        font-weight: 500;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .item-author {
+        font-size: 10px;
+        color: #8a8a8a;
+      }
+
+      .item-inline {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        min-width: 0;
+      }
+
+      .item-inline .title-inline {
+        min-width: 0;
+        flex: 0 1 auto;
+        max-width: 100%;
+        font-size: 12px;
+        font-weight: 600;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .item-inline .author-inline {
+        color: #6b7280;
+        font-family: "IBM Plex Sans", Inter, sans-serif;
+        font-size: 10px;
+        font-weight: 600;
+        letter-spacing: 0.5px;
+        background: #e5e7eb;
+        border-radius: 8px;
+        padding: 2px 8px;
+        flex-shrink: 0;
+      }
+
+      .item-link {
+        font-size: 10px;
+        color: #c67a52;
+        letter-spacing: 0.6px;
+        line-height: 1.35;
+        white-space: normal;
+        overflow: visible;
+        text-overflow: clip;
+        overflow-wrap: anywhere;
+        word-break: break-all;
+      }
+
+      .insight-list {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .insight-item {
+        background: var(--insight);
+        border-radius: 12px;
+        padding: 6px 12px;
+      }
+
+      .insight-item .item-title {
+        font-size: 12px;
+        font-weight: 600;
+        white-space: normal;
+        overflow: visible;
+        text-overflow: clip;
+        line-height: 1.35;
+      }
+
+      .insight-item .item-author {
+        font-size: 12px;
+        color: #64748b;
+        font-weight: 500;
+      }
+
+      .footer {
+        margin-top: 2px;
+        text-align: center;
+        font-size: 10px;
+        font-weight: 500;
+        letter-spacing: 1px;
+        color: #a0a0a0;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="page">
+      <header class="header">
+        <p class="issue">{{issue}}</p>
+        <h1 class="title">{{title_main}}</h1>
+        <p class="period">{{period}}</p>
+      </header>
+
+      <section class="stats">
+        <article class="stat">
+          <p class="stat-label">总成员 / 活跃成员</p>
+          <p class="stat-value">{{total_members}} / {{active_members}}</p>
+        </article>
+        <article class="stat">
+          <p class="stat-label">精彩内容</p>
+          <p class="stat-value">{{highlights_count}}</p>
+        </article>
+      </section>
+
+      <section class="card">
+        <h2 class="card-title">本期排行</h2>
+        <div class="rank-table">
+          {{#rankings}}
+          <div class="rank-row" style="--rank-width: {{bar_width}}%; --rank-fill: {{bar_color}};">
+            <div class="rank-track">
+              <div class="rank-progress"></div>
+            </div>
+            <div class="rank-content">
+              <span class="rank-medal">{{rank_badge}}</span>
+              <span class="rank-name">{{name}}</span>
+              <span class="rank-score">{{score}}</span>
+            </div>
+          </div>
+          {{/rankings}}
+        </div>
+      </section>
+
+      <section class="card">
+        <h2 class="card-title">本期看点</h2>
+
+        <div class="topic-head"><span class="topic-bar" style="background:#3b82f6"></span><h3 class="topic-title">公众号文章</h3></div>
+        <div class="group">
+          {{#articles}}
+          <div class="item">
+            <div class="item-inline"><span class="title-inline">{{title}}</span><span class="author-inline">@{{author}}</span></div>
+          </div>
+          {{/articles}}
+        </div>
+
+        <div class="topic-head"><span class="topic-bar" style="background:#f59e0b"></span><h3 class="topic-title">精选分享</h3></div>
+        <div class="group">
+          {{#shares}}
+          <div class="item">
+            <div class="item-inline"><span class="title-inline">{{title}}</span><span class="author-inline">@{{author}}</span></div>
+            <div class="item-link">{{url}}</div>
+          </div>
+          {{/shares}}
+        </div>
+
+        <div class="topic-head"><span class="topic-bar" style="background:#10b981"></span><h3 class="topic-title">GitHub 项目</h3></div>
+        <div class="group">
+          {{#github_projects}}
+          <div class="item">
+            <div class="item-inline"><span class="title-inline">{{title}}</span><span class="author-inline">@{{author}}</span></div>
+            <div class="item-link">{{url}}</div>
+          </div>
+          {{/github_projects}}
+        </div>
+
+        <div class="topic-head"><span class="topic-bar" style="background:#ef4444"></span><h3 class="topic-title">原创心得</h3></div>
+        <div class="insight-list">
+          {{#insights}}
+          <div class="insight-item">
+            <div class="item-title">{{title}}</div>
+            <div class="item-author">@{{author}}</div>
+          </div>
+          {{/insights}}
+        </div>
+      </section>
+
+      <footer class="footer">Copyright © 2026 麦田项目组</footer>
+    </main>
+  </body>
+</html>

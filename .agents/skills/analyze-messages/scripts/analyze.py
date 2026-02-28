@@ -121,8 +121,13 @@ def build_prompt(wxid: str, nickname: str, filtered_messages: list) -> str:
 ## 注意事项
 1. 总结要客观准确，涵盖成员的主要言论特点。
 2. stats 统计应基于消息内容进行合理分类。
-3. highlights 仅记录有价值的内容（如分享的文章、GitHub项目、深刻的见解或明确的合作机会）。
-4. 必须输出 quality_score（0-100），用于评估成员整体内容质量，尽量拉开分布。
+3. highlights 仅记录高价值内容，且 type 必须严格使用以下定义：
+   - article: 公众号/博客/新闻/技术文章。`content` 必须是文章原始标题；若无法确定原始标题，`content` 置为空字符串。
+   - github: GitHub 仓库/代码项目。`content` 根据对话内容总结该仓库描述。
+   - insight: 原创观点/经验总结/判断结论。`content` 填消息原文。
+   - opportunity: 招聘/内推/合作招募/项目招募等机会信息。`content` 填机会摘要。
+4. `highlights.url` 仅在消息中存在明确链接时填写，否则置为空字符串。
+5. 必须输出 quality_score（0-100），用于评估成员整体内容质量，尽量拉开分布。
 
 ## quality_score 评分锚点
 - 0~20: 几乎无信息量，纯表情/灌水/重复复读
@@ -412,7 +417,7 @@ async def main():
             "highlights": all_highlights,
         },
     }
-    analysis_path = os.path.join(OUTPUT_DIR, "analyze-messages.json")
+    analysis_path = os.path.join(OUTPUT_DIR, "analyze.json")
     with open(analysis_path, "w", encoding="utf-8") as f:
         json.dump(analysis_data, f, ensure_ascii=False, indent=2)
 
