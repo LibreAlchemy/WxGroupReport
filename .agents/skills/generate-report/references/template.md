@@ -1,0 +1,69 @@
+# 群聊报告
+
+**统计周期**: {{ period_start }} ~ {{ period_end }}
+**生成时间**: {{ generated_at }}
+**报告期号**: 第 {{ report_number }} 期
+
+# 数据概览
+
+| 指标 | 数值 |
+|------|------|
+| 总成员数 | {{ total_members }} |
+| 活跃成员数 | {{ active_members }} |
+| 精彩内容数 | {{ highlights_count }} |
+
+# 本期排行榜 (Top10)
+
+| 排名 | 成员 | 发言数 | 综合分 |
+|------|------|--------|--------|
+{%- for member in top_members %}
+| {{ loop.index }} | {{ member.name | replace("|", "\\|") }} | {{ member.msg_count }} | {{ "%.1f"|format(member.activity_score) }} |
+{%- else %}
+| - | 暂无 | 0 | 0.0 |
+{%- endfor %}
+
+# 本期精彩内容
+{% if articles %}
+{%- set ns = namespace(has_article_with_url=false, has_official_no_url=false) %}
+{%- for item in articles %}
+{%- if item.url %}
+{%- set ns.has_article_with_url = true %}
+{%- else %}
+{%- set ns.has_official_no_url = true %}
+{%- endif %}
+{%- endfor %}
+{% if ns.has_official_no_url %}
+## 公众号文章
+{%- for item in articles %}
+{%- if not item.url %}
+- 《{{ item.title }}》 @{{ item.author | replace("|", "\\|") }}
+{%- endif %}
+{%- endfor %}
+{% endif %}
+{% if ns.has_article_with_url %}
+## 精选分享
+{%- for item in articles %}
+{%- if item.url %}
+- [{{ item.title }}]({{ item.url }}) @{{ item.author | replace("|", "\\|") }}
+{%- endif %}
+{%- endfor %}
+{% endif %}
+{% endif %}
+{% if github_items %}
+## Github 项目
+{%- for item in github_items %}
+- [{{ item.repo }}]({{ item.url }}) @{{ item.author | replace("|", "\\|") }}
+{%- endfor %}
+{% endif %}
+{% if insights %}
+## 原创见解
+{%- for item in insights %}
+- "{{ item.content }}" — @{{ item.author | replace("|", "\\|") }}
+{%- endfor %}
+{% endif %}
+{% if opportunities %}
+## 机会分享
+{%- for item in opportunities %}
+- {{ item.summary }} — @{{ item.author | replace("|", "\\|") }}
+{%- endfor %}
+{% endif %}

@@ -1,0 +1,154 @@
+---
+name: analyze-messages
+description: Analyze processed WeChat member messages with LLM, output member scores and highlights.
+---
+
+# Skill: analyze-messages
+
+## Overview
+
+并行分析成员消息，输出成员级总结、质量分和精彩内容。
+
+## When to Use
+
+- 需要对成员发言做批量 AI 分析
+- 需要输出 `output/analyze-messages.json`
+
+## Input / Output
+
+### Input (AnalyzeInput)
+
+```ts
+interface AnalyzeInput {
+  config?: {
+    model?: string;            // 模型名称，默认 gemini-2.0-flash
+    batchSize?: number;        // 每批消息数，默认 100
+    maxWorkers?: number;        // 并行任务数，默认 5
+    lowQualityThreshold?: number; // 低质判定阈值，默认 60
+    minMessageCount?: number;  // 低频次阈值，默认 5
+  };
+}
+```
+
+### Output (AnalyzeOutput)
+
+```ts
+interface AnalyzeOutput {
+  success: boolean;
+  data?: {
+    memberScores: MemberScore[];
+    highlights: Highlight[];
+  };
+  error?: {
+    code: string;
+    message: string;
+  };
+}
+
+interface MemberScore {
+  wxid: string;
+  nickname: string;
+  messageCount: number;
+  qualityScore: number;  // 0-100，成员发言质量分
+  summary: string;
+  status: "normal" | "zero_activity" | "error";
+  stats: {
+    resource: number;
+    technical: number;
+    qa: number;
+    discussion: number;
+    insight: number;
+    opportunity: number;
+    reply: number;
+  };
+  highlights: Highlight[];
+}
+```
+
+## 错误处理与重试机制
+
+脚本使用增量重试：
+
+1. **增量写入**: 只有分析成功的成员结果会写入 `output/scores/` 目录。
+2. **错误记录**: 分析失败的成员会被记录在 `output/errors.json` 中，包含错误原因和消息计数。
+3. **自动重试**: 脚本会自动循环读取 `errors.json` 并重试其中的成员，直到所有成员成功分析或手动中断。
+4. **清理机制**: 成员成功后自动从 `errors.json` 移除；若已有成功 score，也会在扫描阶段清理残留错误项。
+5. **汇总延迟**: 全部处理完成后生成 `output/analyze-messages.json`。
+
+## 评分规则
+
+### 质量分
+
+- 模型输出 `quality_score`（0-100）
+- 系统写入 `qualityScore`
+
+### 统计维度（stats）
+
+- `resource` 资源分享
+- `technical` 技术探讨
+- `qa` 问答/求助
+- `discussion` 一般讨论
+- `insight` 深度见解
+- `opportunity` 合作机会
+- `reply` 回复他人
+
+## API Prompt 模板
+
+```
+## 任务
+请分析以下群成员的消息，进行总结并评分。
+
+## 成员信息
+- wxid: {wxid}
+- 昵称: {nickname}
+- 消息数: {message_count}
+
+## 消息列表
+{messages}
+
+## 输出格式 (JSON)
+{
+  "summary": "成员发言总结（30-100字）",
+  "quality_score": 0,
+  "stats": {"resource": 0, "technical": 0, "qa": 0, "discussion": 0, "insight": 0, "opportunity": 0, "reply": 0},
+  "highlights": [
+    {
+      "type": "article|github|insight|opportunity",
+      "content": "内容摘要",
+      "url": "链接（如果有）"
+    }
+  ]
+}
+```
+
+## 处理步骤
+
+1. **加载成员文件**: 读取 `output/members/*.json`
+2. **并发调用**: 按成员并发调用模型
+3. **增量写入**: 输出 `output/scores/*.json` 和 `output/errors.json`
+4. **汇总结果**: 生成 `output/analyze-messages.json`
+
+## 文件结构
+
+```
+.agents/skills/analyze-messages/
+├── SKILL.md                 # 本文件
+└── scripts/
+    └── analyze.py          # 主分析脚本
+```
+
+## Script Usage
+
+Use `.agents/skills/analyze-messages/scripts/analyze.py` to analyze messages.
+Scripts support both command-line arguments and environment variables (via `.env`).
+
+### Command Line Arguments
+
+- `-o, --output`: Output directory (overrides `OUTPUT_DIR`, default: `output`)
+
+### Environment Variables
+
+- `OUTPUT_DIR` (default `output`)
+- `AI_PROVIDER` / `AI_MODEL` / `AI_API_KEY` / `AI_BASE_URL`
+- `MAX_ANALYZE_WORKERS` (default `10`)
+- `ANALYZE_SLOW_API_SECONDS` (default `8`)

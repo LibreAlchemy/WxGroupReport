@@ -28,7 +28,7 @@ credentials.*
 *.accdb
 .kiro/
 
-# Python 相关忽略规则
+# Python
 __pycache__/
 *.py[cod]
 .pytest_cache/
@@ -36,18 +36,20 @@ __pycache__/
 .ruff_cache/
 *.egg-info/
 
-# 虚拟环境与包管理
+# Virtual Environments
 .venv/
 venv/
 env/
+
+# UV
 uv.lock
 pyproject.toml
 .python-version
-requirements.txt
 
-# 日志与 AI 标识
+# Logs
 *.log
+
+# AI Identity Related
 AGENTS.md
 
-#测试
-# test/
+whitelist.md
