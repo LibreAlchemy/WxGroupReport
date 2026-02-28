@@ -16,7 +16,7 @@ description: "微信群报告一键分析流程。按顺序执行导入、消息
 1. **import-chat-data**
 2. **analyze-messages**
 3. **generate-report**
-4. **refine-report**（可选，仅在用户要求“精修版/精选内容二次筛选”时执行）
+4. **refine-report**
 
 ## 使用约束
 
