@@ -1,12 +1,13 @@
 # 群聊记录分析工具 (WxGroupReport)
 
-基于 AI 的微信群聊分析工具，自动分析群成员消息质量，生成 Markdown 周期报告。
+基于 AI 的群聊分析工具，自动分析群成员消息质量，生成 Markdown 周期报告，并可渲染为 HTML 页面。
 
 ## 功能特性
 
-- 📥 **数据导入**: 解析微信导出的 JSON 格式聊天记录
+- 📥 **数据导入**: 解析 ChatLab JSON 格式聊天记录（来自 WeFlow 导出）
 - 🤖 **AI 分析**: 使用 LiteLLM 调用大模型进行成员质量评分与内容分类
 - 📊 **报告生成**: 输出 Markdown 格式的群聊周期报告
+- 🖼️ **HTML 生成**: 将精修后的 Markdown 套用模板渲染为可分享的 HTML
 - 🏆 **活跃排行**: 自动识别高活跃度成员
 - ⚠️ **低质检测**: 自动识别低质量/低活跃成员
 
@@ -36,6 +37,7 @@ WxGroupReport/
     ├── analyze.json          # 全量分析结果（含成员分数和精彩内容）
     ├── report.md             # 产出报告
     ├── report_refined.md     # 精修后的报告（精彩内容优化）
+    ├── report_final.html     # 最终 HTML 页面
     └── low_quality_members.md
 ```
 
@@ -70,40 +72,76 @@ cp .env.example .env
 
 编辑 `.env` 文件，配置以下必需项：
 
-| 变量 | 说明 | 示例 |
-|------|------|------|
-| `AI_PROVIDER` | AI 厂商 (如 `openai`, `anthropic`, `gemini`, `deepseek` 等) | `gemini` |
-| `AI_MODEL` | 模型名称 (如 `gemini-2.0-flash` 或完整路径 `deepseek/deepseek-chat`) | `gemini-2.0-flash` |
-| `AI_API_KEY` | 对应厂商的 API Key | `AIzaSy...` |
+
+| 变量          | 说明                                                                | 示例               |
+| ------------- | ------------------------------------------------------------------- | ------------------ |
+| `AI_PROVIDER` | AI 厂商 (如`openai`, `anthropic`, `gemini`, `deepseek` 等)          | `gemini`           |
+| `AI_MODEL`    | 模型名称 (如`gemini-2.0-flash` 或完整路径 `deepseek/deepseek-chat`) | `gemini-2.0-flash` |
+| `AI_API_KEY`  | 对应厂商的 API Key                                                  | `AIzaSy...`        |
 
 常用可选项：
 
-| 变量 | 说明 | 默认值 |
-|------|------|--------|
-| `AI_BASE_URL` | OpenAI 兼容网关地址（按需） | - |
-| `MAX_ANALYZE_WORKERS` | 分析并发数 | `10` |
-| `ANALYZE_SLOW_API_SECONDS` | 慢请求日志阈值(秒) | `8` |
-| `OUTPUT_DIR` | 输出目录 | `output` |
+
+| 变量                       | 说明                        | 默认值   |
+| -------------------------- | --------------------------- | -------- |
+| `AI_BASE_URL`              | OpenAI 兼容网关地址（按需） | -        |
+| `MAX_ANALYZE_WORKERS`      | 分析并发数                  | `10`     |
+| `ANALYZE_SLOW_API_SECONDS` | 慢请求日志阈值(秒)          | `8`      |
+| `OUTPUT_DIR`               | 输出目录                    | `output` |
 
 ### 5. 准备输入数据
 
-将微信聊天记录导出为 JSON 格式，放到任意位置。
+本项目使用 [WeFlow](https://github.com/hicccc77/WeFlow) 导出的 ChatLab JSON 格式。
 
-### 6. 运行全流程（CLI）
+ChatLab JSON 示例：
 
-```bash
-# 1) 导入数据
-python .agents/skills/import-chat-data/scripts/preprocessor.py -i data/your-chat.json -o output
-python .agents/skills/import-chat-data/scripts/apply_whitelist.py -o output
-
-# 2) 分析成员消息
-python .agents/skills/analyze-messages/scripts/analyze.py -o output
-
-# 3) 生成报告
-python .agents/skills/generate-report/scripts/generate_report.py -o output
+```json
+{
+  "chatlab": {
+    "version": "0.0.2",
+    "exportedAt": 1703001600
+  },
+  "meta": {
+    "name": "我的群聊",
+    "platform": "qq",
+    "type": "group"
+  },
+  "members": [
+    {
+      "platformId": "123456",
+      "accountName": "张三"
+    }
+  ],
+  "messages": [
+    {
+      "sender": "123456",
+      "accountName": "张三",
+      "timestamp": 1703001600,
+      "type": 0,
+      "content": "大家好！"
+    }
+  ]
+}
 ```
 
-如果使用 OpenCode，也可以通过 `/start path/to/chat.json` 执行同等流程。
+### 6. 运行全流程（OpenCode）
+
+在 OpenCode 中打开项目，然后发送：
+
+- `/start path/to/chat.json`
+
+它会自动完成：导入数据 -> 分析 -> 生成报告 -> 精修报告 -> 渲染 HTML。
+
+主要输出在 `output/`：
+
+- `output/imported.json`：预处理后的输入数据
+- `output/members/`：按成员拆分的消息文件
+- `output/scores/`：成员打分明细
+- `output/analyze.json`：全量分析结果（成员分数 + 精彩内容）
+- `output/report.md`：全量 Markdown 报告
+- `output/report_refined.md`：精修后的 Markdown 报告（优化“本期看点”）
+- `output/report_final.html`：最终可分享 HTML 页面
+- `output/low_quality_members.md`：低质/低活跃成员名单
 
 ## 白名单配置 (可选)
 
