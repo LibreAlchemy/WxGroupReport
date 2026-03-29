@@ -394,28 +394,12 @@ def select_imported_file(output_dir: Path) -> Path:
 
 def main():
     parser = argparse.ArgumentParser(description="生成报告脚本")
-    parser.add_argument("-o", "--output", help="输出目录 (OUTPUT_DIR)")
-    parser.add_argument(
-        "--low-quality-template", help="低质成员模板路径 (LOW_QUALITY_TEMPLATE_PATH)"
-    )
-    parser.add_argument(
-        "--low-quality-output", help="低质成员报告输出路径 (LOW_QUALITY_OUTPUT_PATH)"
-    )
+    parser.add_argument("-o", "--output", default="output", help="输出目录，默认 output")
     args = parser.parse_args()
 
-    output_dir_env = args.output or os.getenv("OUTPUT_DIR", "output")
-    default_low_quality_template = (
-        Path(__file__).resolve().parent.parent / "references" / "low_quality_template.md"
-    )
-    low_quality_template_env = args.low_quality_template or os.getenv(
-        "LOW_QUALITY_TEMPLATE_PATH", str(default_low_quality_template)
-    )
-    low_quality_output_env = args.low_quality_output or os.getenv(
-        "LOW_QUALITY_OUTPUT_PATH"
-    )
+    output_dir_env = args.output
 
     assert output_dir_env is not None
-    assert low_quality_template_env is not None
 
     skill_dir = Path(__file__).resolve().parent.parent
     output_dir = Path(output_dir_env)
@@ -423,12 +407,8 @@ def main():
     analysis_path = output_dir / "analyze.json"
     template_path = skill_dir / "references" / "template.md"
     output_path = output_dir / "report.md"
-    low_quality_template_path = Path(low_quality_template_env)
-    low_quality_output_path = (
-        Path(low_quality_output_env)
-        if low_quality_output_env
-        else output_dir / "low_quality_members.md"
-    )
+    low_quality_template_path = skill_dir / "references" / "low_quality_template.md"
+    low_quality_output_path = output_dir / "low_quality_members.md"
 
     config = {
         "period": {

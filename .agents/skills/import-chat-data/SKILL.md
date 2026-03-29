@@ -11,8 +11,6 @@ description: 处理微信群导出 JSON，拆分为成员文件并应用 `whitel
 
 ## 工作流
 
-脚本支持命令行参数与环境变量。
-
 ### 第一步：预处理
 
 ```bash
@@ -20,9 +18,8 @@ python3 ".agents/skills/import-chat-data/scripts/preprocessor.py" -i path/to/inp
 ```
 
 **参数**：
-- `-i, --input`：输入 JSON 文件路径（覆盖 `INPUT_PATH`）
-- `-o, --output`：输出目录（覆盖 `OUTPUT_DIR`，默认 `output`）
-- `--include-media`：包含媒体消息
+- `-i, --input`：输入 JSON 文件路径（必填）
+- `-o, --output`：输出目录（默认 `output`）
 - `--no-extract-join-time`：不提取入群时间（默认开启提取）
 - `--no-save-individual`：不保存成员独立文件（默认开启保存）
 
@@ -33,7 +30,8 @@ python3 ".agents/skills/import-chat-data/scripts/apply_whitelist.py" -o output
 ```
 
 **参数**：
-- `-o, --output`：输出目录（覆盖 `OUTPUT_DIR`，默认 `output`）
+- `-o, --output`：输出目录（默认 `output`）
+- `-w, --whitelist`：白名单文件路径（默认 `whitelist.md`）
 
 **说明**：执行后根据控制台输出确认产物文件位置。
 

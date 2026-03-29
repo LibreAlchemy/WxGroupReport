@@ -96,45 +96,6 @@ interface MemberScore {
 - `opportunity` 合作机会
 - `reply` 回复他人
 
-## Prompt 口径
-
-```
-## 任务
-请分析以下群成员的消息，进行总结并评分。
-
-## 成员信息
-- wxid: {wxid}
-- 昵称: {nickname}
-- 消息数: {message_count}
-
-## 消息列表
-{messages}
-
-## highlights.type 定义
-- article: 公众号/博客/新闻/技术文章。`content` 必须是文章原始标题；若无法确定原始标题，`content` 置空字符串。
-- github: GitHub 仓库/代码项目。`content` 可写仓库名；若仓库名不明确，可根据对话内容总结仓库描述写入 `content`。
-- insight: 原创观点/经验总结/判断结论。`content` 填观点原文或摘要。
-- opportunity: 招聘/内推/合作招募/项目招募等机会信息。`content` 填机会摘要。
-
-## highlights.url 规则
-- 仅当消息中存在明确链接时填写
-- 无明确链接时置空字符串
-
-## 输出格式 (JSON)
-{
-  "summary": "成员发言总结（30-100字）",
-  "quality_score": 0,
-  "stats": {"resource": 0, "technical": 0, "qa": 0, "discussion": 0, "insight": 0, "opportunity": 0, "reply": 0},
-  "highlights": [
-    {
-      "type": "article|github|insight|opportunity",
-      "content": "内容摘要",
-      "url": "链接（如果有）"
-    }
-  ]
-}
-```
-
 ## 处理步骤
 
 1. **加载成员文件**: 读取 `output/members/*.json`
@@ -158,12 +119,9 @@ interface MemberScore {
 
 ### 命令行参数
 
-- `-o, --output`：输出目录（覆盖 `OUTPUT_DIR`，默认 `output`）
+- `-o, --output`：输出目录（默认 `output`）
 
 ### 环境变量
 
-- `OUTPUT_DIR` (default `output`)
 - `AI_PROVIDER` / `AI_MODEL` / `AI_API_KEY` / `AI_BASE_URL`
 - `MAX_ANALYZE_WORKERS` (default `10`)
-- `ANALYZE_SLOW_API_SECONDS` (default `8`)
-- `ANALYZE_LOG_INFLIGHT` (default `1`)

@@ -12,6 +12,7 @@ output/
 *.crt
 config.local.*
 credentials.*
+.DS_Store
 
 # Database Files
 *.db
@@ -43,8 +44,5 @@ pyproject.toml
 
 # Logs
 *.log
-
-# AI Identity Related
-AGENTS.md
 
 whitelist.md
