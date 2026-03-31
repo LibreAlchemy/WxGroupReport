@@ -8,6 +8,7 @@
 import asyncio
 import json
 import os
+import re
 import sys
 import glob
 import argparse
@@ -110,6 +111,27 @@ def sanitize_highlight_output(highlights: list[dict]) -> list[dict]:
     return cleaned
 
 
+def extract_json_payload(content: str) -> str:
+    """兼容模型返回的 markdown 代码块，只提取 JSON 主体。"""
+    text = (content or "").strip()
+    if text.startswith("```json"):
+        return text.replace("```json", "", 1).rsplit("```", 1)[0].strip()
+    if text.startswith("```"):
+        return text.replace("```", "", 1).rsplit("```", 1)[0].strip()
+    return text
+
+
+def normalize_analysis_payload(payload: dict) -> AnalysisResult:
+    """对模型原始 JSON 做兜底归一化，再交给 Pydantic 校验。"""
+    normalized = {
+        "summary": payload.get("summary", "") or "",
+        "quality_score": payload.get("quality_score", 50),
+        "stats": payload.get("stats") or {},
+        "highlights": payload.get("highlights") or [],
+    }
+    return AnalysisResult.model_validate(normalized)
+
+
 def filter_effective_messages(messages: list) -> list:
     """过滤无效消息"""
     return [
@@ -128,12 +150,29 @@ def truncate_message_content(content: str, max_chars: int = 300) -> str:
     return text[:max_chars] + "..."
 
 
+def strip_quoted_reply_blocks(content: str) -> str:
+    """剥离消息中的内联引用块，避免把被引用内容算到当前成员头上。"""
+    text = str(content or "")
+
+    # 常见导出格式：正文[引用 昵称：被引用内容]
+    prev = None
+    while prev != text:
+        prev = text
+        text = re.sub(r"\[引用 [^\[\]]*?\]", "", text)
+
+    # 清理剥离引用后留下的多余空白
+    text = re.sub(r"[ \t]+\n", "\n", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+
 def format_messages_for_prompt(messages: list) -> str:
     """将消息按时间升序格式化为 prompt 文本"""
     sorted_messages = sorted(messages, key=lambda m: m.get("timestamp", ""))
     return "\n".join(
-        f"[{m.get('timestamp', '')}] {truncate_message_content(m.get('content', ''))}"
+        f"[{m.get('timestamp', '')}] {truncate_message_content(strip_quoted_reply_blocks(m.get('content', '')))}"
         for m in sorted_messages
+        if strip_quoted_reply_blocks(m.get("content", "")).strip()
     )
 
 
@@ -159,12 +198,13 @@ def build_prompt(wxid: str, nickname: str, filtered_messages: list) -> str:
    - insight: 原创观点/经验总结/判断结论。`content` 必须优先填写成员消息中的原文片段，尽量逐字摘录；只有原文过长或存在明显口语噪音时，才允许做最小必要整理，但不得改写原意。
    - opportunity: 招聘/内推/合作招募/项目招募等机会信息。`content` 填机会摘要。
 5. `highlights.url` 仅在消息中存在明确链接时填写，否则置为空字符串。
-6. 必须输出 quality_score（0-100），用于评估成员整体内容质量，尽量拉开分布。
-7. 需要关注成员在统计周期内的持续性与阶段性表现，避免因为单次高质量发言或短时高频发言而高估整体质量。
-8. quality_score 主要衡量内容质量、信息密度和有效性，不应因消息数量多而直接提高，也不应因消息数量少而直接降低。
-9. stats 中 resource/technical/qa/discussion/insight/opportunity 应按每条消息的主属性归类，尽量避免一条消息重复计入多个主类别；reply 可作为附加互动标签单独统计。
-10. highlights 应少而精，只保留最有代表性的高价值内容；如果没有足够高价值的内容，可返回空数组。highlights 总数不超过 5 条。
-11. summary 需要尽量同时覆盖：主要话题、发言特点、整体价值判断，避免只复述消息表面内容。
+6. 只提取当前成员自己新增的高价值内容；回复、引用、转述里的标题、链接、仓库和机会信息都不算当前成员的 highlights，除非该成员在引用之外提供了明确的新链接或实质性补充。
+7. 必须输出 quality_score（0-100），用于评估成员整体内容质量，尽量拉开分布。
+8. 需要关注成员在统计周期内的持续性与阶段性表现，避免因为单次高质量发言或短时高频发言而高估整体质量。
+9. quality_score 主要衡量内容质量、信息密度和有效性，不应因消息数量多而直接提高，也不应因消息数量少而直接降低。
+10. stats 中 resource/technical/qa/discussion/insight/opportunity 应按每条消息的主属性归类，尽量避免一条消息重复计入多个主类别；reply 可作为附加互动标签单独统计。
+11. highlights 应少而精，只保留最有代表性的高价值内容；如果没有足够高价值的内容，可返回空数组。highlights 总数不超过 10 条。
+12. summary 需要尽量同时覆盖：主要话题、发言特点、整体价值判断，避免只复述消息表面内容。
 
 ## quality_score 评分锚点
 - 0~20: 几乎无信息量，纯表情/灌水/重复复读
@@ -209,26 +249,18 @@ async def analyze_member(sem, wxid: str, nickname: str, messages: list, inflight
 
             try:
                 prompt = build_prompt(wxid, nickname, filtered_messages)
-                
-                # 使用 litellm 进行结构化输出
+
+                # 避开部分 provider 对 Pydantic JsonSchema 的兼容性问题，
+                # 直接要求模型输出 JSON，再由本地做严格校验。
                 response = await litellm.acompletion(
                     model=LITELLM_MODEL,
                     messages=[{"role": "user", "content": prompt}],
-                    response_format=AnalysisResult,
                     api_key=AI_API_KEY,
                     base_url=AI_BASE_URL,
                 )
-                
-                # 解析结果
-                content = response.choices[0].message.content
-                
-                # 处理可能的 markdown 代码块
-                if content.startswith("```json"):
-                    content = content.replace("```json", "", 1).rsplit("```", 1)[0].strip()
-                elif content.startswith("```"):
-                    content = content.replace("```", "", 1).rsplit("```", 1)[0].strip()
-                
-                result = AnalysisResult.model_validate_json(content)
+
+                content = extract_json_payload(response.choices[0].message.content)
+                result = normalize_analysis_payload(json.loads(content))
                 
                 stats_dict = result.stats.model_dump()
                 quality_score = max(0, min(100, int(result.quality_score)))
