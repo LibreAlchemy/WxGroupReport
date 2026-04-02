@@ -1,0 +1,228 @@
+import asyncio
+import importlib.util
+import json
+import sys
+import types
+from pathlib import Path
+
+
+def load_analyze_module():
+    script_path = (
+        Path(__file__).resolve().parents[1]
+        / ".agents"
+        / "skills"
+        / "analyze-messages"
+        / "scripts"
+        / "analyze.py"
+    )
+    spec = importlib.util.spec_from_file_location("test_analyze_module", script_path)
+    module = importlib.util.module_from_spec(spec)
+    assert spec is not None and spec.loader is not None
+    sys.modules.setdefault(
+        "litellm",
+        types.SimpleNamespace(
+            drop_params=False,
+            acompletion=None,
+        ),
+    )
+    spec.loader.exec_module(module)
+    return module
+
+
+class FakeMessage:
+    def __init__(self, content):
+        self.content = content
+
+
+class FakeChoice:
+    def __init__(self, content):
+        self.message = FakeMessage(content)
+
+
+class FakeResponse:
+    def __init__(self, content):
+        self.choices = [FakeChoice(content)]
+
+
+def write_member(path: Path, wxid: str, nickname: str, messages):
+    path.write_text(
+        json.dumps(
+            {"wxid": wxid, "nickname": nickname, "messages": messages},
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+
+def test_filter_effective_messages_excludes_jielong_and_exported_image_paths():
+    analyze = load_analyze_module()
+    messages = [
+        {"content": "#接龙 明天中午吃什么"},
+        {"content": "../images/20260328/abc123.png"},
+        {"content": "[链接] 一篇文章"},
+    ]
+
+    filtered = analyze.filter_effective_messages(messages)
+
+    assert filtered == [{"content": "[链接] 一篇文章"}]
+
+
+def test_build_prompt_formats_messages_with_timestamp_sorted_and_truncated():
+    analyze = load_analyze_module()
+    long_content = "A" * 320
+    filtered_messages = [
+        {"timestamp": "2026-03-03T10:00:00Z", "content": "后发的消息"},
+        {"timestamp": "2026-03-01T08:00:00Z", "content": long_content},
+    ]
+
+    prompt = analyze.build_prompt("wxid_alice", "Alice", filtered_messages)
+    message_section = prompt.split("## 消息内容\n", 1)[1].split("\n\n## 注意事项", 1)[0]
+
+    assert "[2026-03-01T08:00:00Z] " + ("A" * 300) + "..." in prompt
+    assert "[2026-03-03T10:00:00Z] 后发的消息" in prompt
+    assert prompt.index("2026-03-01T08:00:00Z") < prompt.index("2026-03-03T10:00:00Z")
+    assert "0. " not in message_section
+    assert "1. " not in message_section
+    assert "需要结合消息发送时间理解上下文" in prompt
+    assert "避免因为单次高质量发言或短时高频发言而高估整体质量" in prompt
+    assert "quality_score 主要衡量内容质量、信息密度和有效性" in prompt
+    assert "highlights 总数不超过 5 条" in prompt
+    assert "必须优先填写成员消息中的原文片段" in prompt
+
+
+def test_sanitize_highlight_output_removes_empty_url():
+    analyze = load_analyze_module()
+
+    highlights = [
+        {"type": "insight", "content": "一个观点", "url": ""},
+        {"type": "article", "content": "一篇文章", "url": "https://example.com"},
+    ]
+
+    cleaned = analyze.sanitize_highlight_output(highlights)
+
+    assert cleaned == [
+        {"type": "insight", "content": "一个观点"},
+        {"type": "article", "content": "一篇文章", "url": "https://example.com"},
+    ]
+
+
+def test_build_output_paths_derives_all_runtime_paths():
+    analyze = load_analyze_module()
+
+    paths = analyze.build_output_paths("custom-output")
+
+    assert paths == {
+        "output_dir": "custom-output",
+        "members_dir": "custom-output/members",
+        "scores_dir": "custom-output/scores",
+        "errors_file": "custom-output/errors.json",
+        "analysis_path": "custom-output/analyze.json",
+    }
+
+
+def test_analyze_member_returns_zero_activity():
+    module = load_analyze_module()
+
+    async def run():
+        return await module.analyze_member(
+            asyncio.Semaphore(1),
+            "wx1",
+            "Alice",
+            [{"content": "#接龙 test", "timestamp": "2026-03-01T00:00:00Z"}],
+            {"count": 0, "lock": asyncio.Lock()},
+        )
+
+    result = asyncio.run(run())
+    assert result["status"] == "zero_activity"
+    assert result["messageCount"] == 0
+
+
+def test_analyze_member_parses_fenced_json(monkeypatch):
+    module = load_analyze_module()
+
+    async def fake_completion(**kwargs):
+        return FakeResponse(
+            """```json
+{"summary":"总结","quality_score":88,"stats":{"resource":1,"technical":2,"qa":0,"discussion":0,"insight":1,"opportunity":0,"reply":0},"highlights":[{"type":"insight","content":"原文观点","url":""}]}
+```"""
+        )
+
+    monkeypatch.setattr(module.litellm, "acompletion", fake_completion, raising=False)
+
+    async def run():
+        return await module.analyze_member(
+            asyncio.Semaphore(1),
+            "wx1",
+            "Alice",
+            [{"content": "有效消息", "timestamp": "2026-03-01T00:00:00Z"}],
+            {"count": 0, "lock": asyncio.Lock()},
+        )
+
+    result = asyncio.run(run())
+    assert result["status"] == "normal"
+    assert result["qualityScore"] == 88.0
+    assert result["highlights"] == [{"type": "insight", "content": "原文观点"}]
+
+
+def test_analyze_member_returns_error_when_completion_fails(monkeypatch):
+    module = load_analyze_module()
+
+    async def fake_completion(**kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(module.litellm, "acompletion", fake_completion, raising=False)
+
+    async def run():
+        return await module.analyze_member(
+            asyncio.Semaphore(1),
+            "wx1",
+            "Alice",
+            [{"content": "有效消息", "timestamp": "2026-03-01T00:00:00Z"}],
+            {"count": 0, "lock": asyncio.Lock()},
+        )
+
+    result = asyncio.run(run())
+    assert result["status"] == "error"
+    assert result["error"] == "boom"
+
+
+def test_main_returns_early_without_api_key(monkeypatch, tmp_path, capsys):
+    module = load_analyze_module()
+    monkeypatch.setattr(module, "AI_API_KEY", None)
+    monkeypatch.setattr(sys, "argv", ["analyze.py", "-o", str(tmp_path / "out")])
+
+    asyncio.run(module.main())
+
+    assert "未设置 AI API Key" in capsys.readouterr().err
+
+
+def test_main_generates_scores_and_analyze_json(monkeypatch, tmp_path):
+    module = load_analyze_module()
+    out = tmp_path / "out"
+    members_dir = out / "members"
+    members_dir.mkdir(parents=True)
+    write_member(
+        members_dir / "wx1.json",
+        "wx1",
+        "Alice",
+        [{"content": "有效消息", "timestamp": "2026-03-01T00:00:00Z"}],
+    )
+
+    async def fake_completion(**kwargs):
+        return FakeResponse(
+            '{"summary":"总结","quality_score":77,"stats":{"resource":1,"technical":0,"qa":0,"discussion":0,"insight":0,"opportunity":0,"reply":0},"highlights":[{"type":"article","content":"文章标题","url":"https://example.com"}]}'
+        )
+
+    monkeypatch.setattr(module.litellm, "acompletion", fake_completion, raising=False)
+    monkeypatch.setattr(module, "AI_API_KEY", "test-key")
+    monkeypatch.setattr(module, "MAX_WORKERS", 1)
+    monkeypatch.setattr(sys, "argv", ["analyze.py", "-o", str(out)])
+
+    asyncio.run(module.main())
+
+    score = json.loads((out / "scores" / "wx1.json").read_text(encoding="utf-8"))
+    analysis = json.loads((out / "analyze.json").read_text(encoding="utf-8"))
+    assert score["status"] == "normal"
+    assert score["qualityScore"] == 77.0
+    assert analysis["data"]["memberScores"][0]["nickname"] == "Alice"
+    assert analysis["data"]["highlights"][0]["author"] == "Alice"

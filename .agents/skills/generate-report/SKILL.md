@@ -71,17 +71,16 @@ interface ReportOutput {
 
 ### 命令行参数
 
-- `-o, --output`：输出目录（覆盖 `OUTPUT_DIR`，默认 `output`）
-- `--low-quality-template`：低质成员模板路径（可选）
-- `--low-quality-output`：低质成员报告输出路径（可选）
+- `-o, --output`：输出目录（默认 `output`）
 
 ### 环境变量
 
-- `OUTPUT_DIR`（默认 `output`）
-- `LOW_QUALITY_TEMPLATE_PATH`（可选覆盖，默认脚本同级 `references/low_quality_template.md`）
-- `LOW_QUALITY_OUTPUT_PATH`（可选覆盖，默认 `output/low_quality_members.md`）
+- `PERIOD_START` / `PERIOD_END`：可选覆盖统计周期
+- `REPORT_NUMBER`（默认 `1`）
 
 ## 说明
 
 - 主模板路径在脚本中固定，按脚本相对路径解析。
+- 低质成员模板路径固定为脚本同级 `references/low_quality_template.md`。
+- 低质成员报告固定输出到 `output/low_quality_members.md`。
 - 对外回复时不要输出大段 JSON 原文。

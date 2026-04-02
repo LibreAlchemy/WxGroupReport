@@ -287,6 +287,18 @@
         word-break: break-all;
       }
 
+      .item-link a {
+        color: inherit;
+        text-decoration: none;
+        text-decoration-thickness: 1px;
+        text-underline-offset: 2px;
+      }
+
+      .item-link a:hover {
+        opacity: 0.85;
+        text-decoration: underline;
+      }
+
       .insight-list {
         display: flex;
         flex-direction: column;
@@ -378,7 +390,7 @@
           {{#shares}}
           <div class="item">
             <div class="item-inline"><span class="title-inline">{{title}}</span><span class="author-inline">@{{author}}</span></div>
-            <div class="item-link">{{url}}</div>
+            <div class="item-link"><a href="{{url}}" target="_blank" rel="noopener noreferrer">{{url}}</a></div>
           </div>
           {{/shares}}
         </div>
@@ -388,7 +400,7 @@
           {{#github_projects}}
           <div class="item">
             <div class="item-inline"><span class="title-inline">{{title}}</span><span class="author-inline">@{{author}}</span></div>
-            <div class="item-link">{{url}}</div>
+            <div class="item-link"><a href="{{url}}" target="_blank" rel="noopener noreferrer">{{url}}</a></div>
           </div>
           {{/github_projects}}
         </div>

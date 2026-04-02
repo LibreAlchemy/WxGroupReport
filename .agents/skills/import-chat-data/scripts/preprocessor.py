@@ -5,7 +5,7 @@
 
 功能：
 1. 读取微信群聊 JSON 导出文件
-2. 过滤无效消息（系统消息、动画表情等）
+2. 过滤非成员业务消息（系统消息等）
 3. 按成员拆分消息
 4. 生成主文件和成员单独文件
 5. 可选提取系统消息中的入群时间
@@ -31,8 +31,6 @@ except ImportError:  # pragma: no cover - 仅在依赖缺失时触发
 
 # 消息类型常量
 SYSTEM_MSG_TYPES = {80}  # 系统消息
-LOW_QUALITY_TYPES = {5}  # 动画表情（水消息）
-MEDIA_TYPES = {1}  # 图片
 VALID_MSG_TYPES = {0, 7, 24, 25, 27}  # 有效消息
 
 
@@ -96,16 +94,48 @@ def clean_content(content: Optional[str]) -> str:
     return str(content).strip()
 
 
-def is_valid_message(msg_type: int, include_media: bool = False) -> bool:
+def is_placeholder_name(value: str) -> bool:
+    """判断是否为系统占位符，例如 $names$、$adder$、$revoke$"""
+    return bool(re.fullmatch(r"\$[^$]+\$", value.strip()))
+
+
+def is_valid_message(msg_type: int) -> bool:
     """判断消息类型是否有效"""
-    if msg_type in SYSTEM_MSG_TYPES or msg_type in LOW_QUALITY_TYPES:
-        return True
-    if msg_type in MEDIA_TYPES and not include_media:
+    if msg_type in SYSTEM_MSG_TYPES:
         return False
     return msg_type in VALID_MSG_TYPES
 
 
-def build_member_mapping(members: List[Dict], group_id: str = "") -> Dict[str, Dict]:
+def is_forwarded_chat_record_message(msg: Dict[str, Any]) -> bool:
+    """判断是否为转发聊天记录消息"""
+    return int(msg.get("type", -1)) == 7 and "chatRecords" in msg
+
+
+def collect_chat_record_participants(messages: List[Dict]) -> set[str]:
+    """收集转发聊天记录中的参与者名称"""
+    participants: set[str] = set()
+    for msg in messages:
+        if not is_forwarded_chat_record_message(msg):
+            continue
+        chat_records = msg.get("chatRecords")
+        if not isinstance(chat_records, list):
+            continue
+        for record in chat_records:
+            sender = clean_content(record.get("sender"))
+            account_name = clean_content(record.get("accountName"))
+            if sender:
+                participants.add(sender)
+            if account_name:
+                participants.add(account_name)
+    return participants
+
+
+def build_member_mapping(
+    members: List[Dict],
+    root_message_senders: set[str],
+    chat_record_participants: set[str],
+    group_id: str = "",
+) -> Dict[str, Dict]:
     """从成员列表构建 wxid → member_info 映射"""
     mapping = {}
     for member in members:
@@ -113,6 +143,11 @@ def build_member_mapping(members: List[Dict], group_id: str = "") -> Dict[str, D
         if not wxid:
             continue
         if group_id and wxid == group_id:
+            continue
+        # 原始导出会把转发聊天记录中的参与者也塞进 members。
+        # 这类伪成员的 platformId 往往直接等于聊天记录里的昵称，
+        # 且不会作为当前群的顶层消息 sender 出现。
+        if wxid in chat_record_participants and wxid not in root_message_senders:
             continue
         mapping[wxid] = {
             "accountName": member.get("accountName", ""),
@@ -125,24 +160,45 @@ def extract_join_times(messages: List[Dict]) -> Dict[str, int]:
     """从系统消息提取入群时间（按昵称映射）"""
     result: Dict[str, int] = {}
 
-    for msg in messages:
+    for index, msg in enumerate(messages):
         msg_type = int(msg.get("type", -1))
         if msg_type not in SYSTEM_MSG_TYPES:
             continue
 
         content = clean_content(msg.get("content"))
-        if "加入群聊" not in content:
-            continue
-
-        matches = re.findall(r"\"([^\"]+)\"", content)
-        if not matches:
-            continue
-
-        joiner = matches[0].strip()
-        if not joiner:
+        if "加入群聊" not in content and "加入了群聊" not in content:
             continue
 
         timestamp = int(msg.get("timestamp", 0))
+        joiner = ""
+
+        # 微信导出中常见两段式入群提示：
+        # 1. 邀请"$names$"加入了群聊
+        # 2. "Dongmay"与群里其他人都不是朋友关系，请注意隐私安全
+        # 实际入群成员名称通常出现在下一条系统消息中。
+        if index + 1 < len(messages):
+            next_msg = messages[index + 1]
+            if int(next_msg.get("type", -1)) in SYSTEM_MSG_TYPES:
+                next_content = clean_content(next_msg.get("content"))
+                next_matches = re.findall(r"\"([^\"]+)\"", next_content)
+                for candidate in next_matches:
+                    candidate = candidate.strip()
+                    if candidate and not is_placeholder_name(candidate):
+                        joiner = candidate
+                        break
+
+        # 兼容直接在当前系统消息中带出成员名的格式
+        if not joiner:
+            matches = re.findall(r"\"([^\"]+)\"", content)
+            for candidate in matches:
+                candidate = candidate.strip()
+                if candidate and not is_placeholder_name(candidate):
+                    joiner = candidate
+                    break
+
+        if not joiner:
+            continue
+
         if joiner not in result or timestamp < result[joiner]:
             result[joiner] = timestamp
 
@@ -152,7 +208,6 @@ def extract_join_times(messages: List[Dict]) -> Dict[str, int]:
 def filter_and_parse_messages(
     messages: List[Dict],
     member_mapping: Dict[str, Dict],
-    include_media: bool = False,
     show_progress: bool = True,
 ) -> Tuple[Dict[str, List[ParsedMessage]], int]:
     """
@@ -171,7 +226,10 @@ def filter_and_parse_messages(
     for msg in iterator:
         msg_type = int(msg.get("type", -1))
 
-        if not is_valid_message(msg_type, include_media):
+        if (
+            not is_valid_message(msg_type)
+            or is_forwarded_chat_record_message(msg)
+        ):
             filtered_count += 1
             continue
 
@@ -227,10 +285,16 @@ def calculate_statistics(
     messages: List[Dict], member_mapping: Dict[str, Dict], filtered_count: int
 ) -> Dict[str, int]:
     """计算统计信息"""
+    system_messages = sum(
+        1 for msg in messages if int(msg.get("type", -1)) in SYSTEM_MSG_TYPES
+    )
+    member_messages = len(messages) - filtered_count
     return {
         "totalMessages": len(messages),
-        "validMessages": len(messages) - filtered_count,
+        "validMessages": member_messages,
+        "memberMessages": member_messages,
         "filteredMessages": filtered_count,
+        "systemMessages": system_messages,
         "totalMembers": len(member_mapping),
     }
 
@@ -283,7 +347,6 @@ def validate_input_file(input_path: Path) -> None:
 def preprocess_chat_data(
     input_path: str,
     output_dir: str = "output",
-    include_media: bool = False,
     include_join_time: bool = True,
     save_individual: bool = True,
 ) -> Tuple[ProcessedData, Dict[str, Any]]:
@@ -307,11 +370,22 @@ def preprocess_chat_data(
         avatar=meta.get("groupAvatar", ""),
     )
 
-    member_mapping = build_member_mapping(members, group_info.group_id)
+    root_message_senders = {
+        msg.get("sender")
+        for msg in messages
+        if msg.get("sender") and not is_forwarded_chat_record_message(msg)
+    }
+    chat_record_participants = collect_chat_record_participants(messages)
+    member_mapping = build_member_mapping(
+        members,
+        root_message_senders,
+        chat_record_participants,
+        group_info.group_id,
+    )
     join_times_by_nickname = extract_join_times(messages) if include_join_time else {}
 
     messages_by_member, filtered_count = filter_and_parse_messages(
-        messages, member_mapping, include_media=include_media, show_progress=True
+        messages, member_mapping, show_progress=True
     )
 
     processed_members = aggregate_member_data(
@@ -342,34 +416,25 @@ def parse_bool(value: Optional[str], default: bool = False) -> bool:
 
 
 def load_config() -> Dict[str, Any]:
-    """从命令行参数或环境变量读取配置"""
+    """从命令行参数读取配置"""
     parser = argparse.ArgumentParser(description="微信群聊记录预处理工具")
-    parser.add_argument("-i", "--input", help="输入 JSON 文件路径 (INPUT_PATH)")
-    parser.add_argument("-o", "--output", default="output", help="输出目录 (OUTPUT_DIR)")
-    parser.add_argument("--include-media", action="store_true", help="是否包含媒体消息")
+    parser.add_argument("-i", "--input", help="输入 JSON 文件路径")
+    parser.add_argument("-o", "--output", default="output", help="输出目录，默认 output")
     parser.add_argument("--no-extract-join-time", action="store_true", help="不提取入群时间")
     parser.add_argument("--no-save-individual", action="store_true", help="不保存成员单独文件")
     
     args = parser.parse_args()
 
-    # 加载环境变量作为默认值
     if load_dotenv:
         load_dotenv()
 
-    input_path = args.input or os.getenv("INPUT_PATH") or os.getenv("DATA_PATH")
-    if not input_path:
-        # 如果都没有，则尝试报错
-        pass 
-
-    output_dir = args.output or os.getenv("OUTPUT_DIR", "output")
-    include_media = args.include_media or parse_bool(os.getenv("INCLUDE_MEDIA"), default=False)
+    output_dir = args.output
     include_join_time = not args.no_extract_join_time
     save_individual = not args.no_save_individual
 
     return {
-        "input_path": input_path,
+        "input_path": args.input,
         "output_dir": output_dir,
-        "include_media": include_media,
         "include_join_time": include_join_time,
         "save_individual": save_individual,
     }
@@ -380,7 +445,7 @@ def main():
     config = load_config()
 
     if not config["input_path"]:
-        print("❌ 错误: 未指定输入文件。请通过 -i/--input 参数或环境变量 INPUT_PATH 指定。", file=sys.stderr)
+        print("❌ 错误: 未指定输入文件。请通过 -i/--input 参数指定。", file=sys.stderr)
         return 1
 
     try:
@@ -390,7 +455,6 @@ def main():
         result, output_files = preprocess_chat_data(
             config["input_path"],
             config["output_dir"],
-            config["include_media"],
             include_join_time=config["include_join_time"],
             save_individual=config["save_individual"],
         )

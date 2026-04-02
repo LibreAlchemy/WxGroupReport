@@ -12,13 +12,18 @@ from pathlib import Path
 
 def main():
     parser = argparse.ArgumentParser(description="Apply whitelist marks to member files")
-    parser.add_argument("-o", "--output", default="output", help="输出目录 (OUTPUT_DIR)")
+    parser.add_argument("-o", "--output", default="output", help="输出目录，默认 output")
+    parser.add_argument(
+        "-w",
+        "--whitelist",
+        default="whitelist.md",
+        help="白名单文件路径，默认使用仓库根目录下的 whitelist.md",
+    )
     args = parser.parse_args()
 
-    # 优先从根目录的 whitelist.md 加载
-    whitelist_file = Path("whitelist.md")
+    whitelist_file = Path(args.whitelist)
     
-    output_dir = Path(args.output or os.getenv("OUTPUT_DIR", "output"))
+    output_dir = Path(args.output)
     members_dir = output_dir / "members"
 
     if not whitelist_file.exists():
