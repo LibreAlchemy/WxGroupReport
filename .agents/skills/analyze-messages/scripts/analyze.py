@@ -181,12 +181,7 @@ def build_prompt(wxid: str, nickname: str, filtered_messages: list) -> str:
     msgs_text = format_messages_for_prompt(filtered_messages)
 
     return f"""## 任务
-分析以下微信群成员的消息，给出总结和评分。
-
-## 成员: {nickname} ({len(filtered_messages)}条消息)
-
-## 消息内容
-{msgs_text}
+分析微信群成员的消息，给出总结和评分。
 
 ## 注意事项
 1. 总结要客观准确，涵盖成员的主要言论特点。
@@ -220,6 +215,11 @@ def build_prompt(wxid: str, nickname: str, filtered_messages: list) -> str:
   "stats": {{"resource": 0, "technical": 0, "qa": 0, "discussion": 0, "insight": 0, "opportunity": 0, "reply": 0}},
   "highlights": [{{"type": "article|github|insight|opportunity", "content": "", "url": ""}}]
 }}
+
+## 成员: {nickname} ({len(filtered_messages)}条消息)
+
+## 消息内容
+{msgs_text}
 """
 
 

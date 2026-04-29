@@ -8,7 +8,7 @@
 
 - `import-chat-data`：处理群聊导出 JSON，拆分成员数据并应用 `whitelist.md`
 - `analyze-messages`：分析成员发言并生成 `output/analyze.json`
-- `generate-report`：生成 `output/report.md` 与 `output/low_quality_members.md`
+- `generate-report`：生成 `output/report.md` 与 `output/scores.md`
 - `refine-report`：保留全量报告，额外生成 `output/report_refined.md`
 - `render-report`，生成 HTML 报告 `output/report_refined.html`
 

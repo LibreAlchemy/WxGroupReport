@@ -3,12 +3,17 @@ import os
 import sys
 import argparse
 import re
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from bisect import bisect_right
 from urllib.parse import urlparse
 
 import jinja2
+
+
+ACTIVITY_SCORE_COUNT_WEIGHT = 0.5
+ACTIVITY_SCORE_QUALITY_WEIGHT = 0.5
+BEIJING_TZ = timezone(timedelta(hours=8))
 
 
 def load_json(path: Path):
@@ -26,6 +31,21 @@ def ensure_table_safe(value):
 
 def read_member_quality_score(member):
     return float(member.get("qualityScore", 0.0))
+
+
+def timestamp_to_beijing_date(timestamp):
+    text = safe_text(timestamp)
+    if not text:
+        return ""
+    if text.endswith("Z"):
+        text = f"{text[:-1]}+00:00"
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return ""
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(BEIJING_TZ).date().isoformat()
 
 
 def sanitize_url(url):
@@ -103,8 +123,8 @@ def compute_activity_score_100(
     sorted_msg_counts,
     min_avg_score,
     max_avg_score,
-    weight_count=0.6,
-    weight_quality=0.4,
+    weight_count=ACTIVITY_SCORE_COUNT_WEIGHT,
+    weight_quality=ACTIVITY_SCORE_QUALITY_WEIGHT,
 ):
     norm_msg_count = normalize_percentile(msg_count, sorted_msg_counts)
     norm_avg_score = normalize_min_max(avg_score, min_avg_score, max_avg_score)
@@ -114,21 +134,19 @@ def compute_activity_score_100(
     return 100 * ((weight_count * norm_msg_count + weight_quality * norm_avg_score) / weight_sum)
 
 
-def compute_low_quality_members(member_scores):
+def compute_score_members(member_scores):
     severity_label = {
         "high": "高",
         "medium": "中",
         "low": "低",
     }
-    weight_count = 0.6
-    weight_quality = 0.4
     msg_counts = [m.get("messageCount", 0) for m in member_scores]
     sorted_msg_counts = sorted(msg_counts)
     avg_scores = [read_member_quality_score(m) for m in member_scores]
     min_avg_score = min(avg_scores, default=0.0)
     max_avg_score = max(avg_scores, default=0.0)
 
-    low_quality = []
+    score_members = []
     for m in member_scores:
         msg_count = m.get("messageCount", 0)
         avg_score = read_member_quality_score(m)
@@ -138,8 +156,8 @@ def compute_low_quality_members(member_scores):
             sorted_msg_counts,
             min_avg_score,
             max_avg_score,
-            weight_count,
-            weight_quality,
+            ACTIVITY_SCORE_COUNT_WEIGHT,
+            ACTIVITY_SCORE_QUALITY_WEIGHT,
         )
 
         status = None
@@ -150,18 +168,23 @@ def compute_low_quality_members(member_scores):
             severity = "high"
             reason = "无消息"
         elif 40 < activity_score < 60:
-            status = "low_quality"
+            status = "score_middle"
             severity = "medium"
             reason = f"综合分{activity_score:.1f}"
         elif activity_score <= 40:
             status = "low_frequency"
             severity = "low"
             reason = f"综合分{activity_score:.1f}"
+        elif activity_score > 60:
+            status = "qualified"
+            severity = "normal"
+            reason = f"综合分{activity_score:.1f}"
 
         if status:
-            low_quality.append(
+            score_members.append(
                 {
                     "name": safe_text(m.get("nickname") or m.get("wxid") or ""),
+                    "summary": safe_text(m.get("summary") or ""),
                     "msg_count": msg_count,
                     "avg_score": avg_score,
                     "activity_score": round(activity_score, 1),
@@ -173,29 +196,40 @@ def compute_low_quality_members(member_scores):
             )
 
     severity_order = {"high": 0, "medium": 1, "low": 2}
-    low_quality.sort(key=lambda x: severity_order.get(x["severity"], 3))
-    return low_quality
+    score_members.sort(key=lambda x: severity_order.get(x["severity"], 3))
+    return score_members
 
 
-def build_low_quality_groups(low_quality_members):
+def build_score_groups(score_members):
     group_meta = [
         {"status": "zero_activity", "title": "零发言成员", "severity_label": "高"},
         {"status": "low_frequency", "title": "综合分 <=40", "severity_label": "低"},
-        {"status": "low_quality", "title": "综合分 40~60", "severity_label": "中"},
+        {"status": "score_middle", "title": "综合分 40~60", "severity_label": "中"},
+        {"status": "qualified", "title": "综合分 >60", "severity_label": "正常"},
     ]
     groups = []
     for meta in group_meta:
-        members = [m for m in low_quality_members if m.get("status") == meta["status"]]
+        members = [m for m in score_members if m.get("status") == meta["status"]]
         if not members:
             continue
-        members = sorted(
-            members,
-            key=lambda m: (
-                m.get("activity_score", 0.0),
-                m.get("msg_count", 0),
-                m.get("name", ""),
-            ),
-        )
+        if meta["status"] == "qualified":
+            members = sorted(
+                members,
+                key=lambda m: (
+                    m.get("activity_score", 0.0),
+                    m.get("msg_count", 0),
+                    m.get("name", ""),
+                ),
+            )
+        else:
+            members = sorted(
+                members,
+                key=lambda m: (
+                    m.get("activity_score", 0.0),
+                    m.get("msg_count", 0),
+                    m.get("name", ""),
+                ),
+            )
         groups.append(
             {
                 "status": meta["status"],
@@ -216,8 +250,6 @@ def to_report_context(processed, analysis, config):
     members_total = len(member_scores)
     active_members = len([m for m in member_scores if m.get("messageCount", 0) > 0])
 
-    weight_count = 0.6
-    weight_quality = 0.4
     msg_counts = [m.get("messageCount", 0) for m in member_scores]
     sorted_msg_counts = sorted(msg_counts)
     avg_scores = [read_member_quality_score(m) for m in member_scores]
@@ -234,8 +266,8 @@ def to_report_context(processed, analysis, config):
             sorted_msg_counts,
             min_avg_score,
             max_avg_score,
-            weight_count,
-            weight_quality,
+            ACTIVITY_SCORE_COUNT_WEIGHT,
+            ACTIVITY_SCORE_QUALITY_WEIGHT,
         )
         enriched_members.append(
             {
@@ -298,31 +330,22 @@ def to_report_context(processed, analysis, config):
                 {"summary": safe_text(item.get("content") or ""), "author": author}
             )
 
-    low_quality = compute_low_quality_members(member_scores)
-    low_quality_groups = build_low_quality_groups(low_quality)
+    score_members = compute_score_members(member_scores)
+    score_groups = build_score_groups(score_members)
+    score_flagged_count = len(
+        [m for m in score_members if m.get("status") != "qualified"]
+    )
 
-    period_start = "-"
-    period_end = "-"
-    if config.get("period"):
-        period_start = config.get("period", {}).get("start") or "-"
-        period_end = config.get("period", {}).get("end") or "-"
-
-    # If period is not provided, try to extract from processed data
-    if period_start == "-" or period_end == "-":
-        all_timestamps = []
-        members = processed.get("members", {})
-        for m_data in members.values():
-            for msg in m_data.get("messages", []):
-                ts = msg.get("timestamp")
-                if ts:
-                    all_timestamps.append(ts)
-
-        if all_timestamps:
-            all_timestamps.sort()
-            if period_start == "-":
-                period_start = all_timestamps[0].split("T")[0]
-            if period_end == "-":
-                period_end = all_timestamps[-1].split("T")[0]
+    period_dates = []
+    members = processed.get("members", {})
+    for m_data in members.values():
+        for msg in m_data.get("messages", []):
+            ts = msg.get("timestamp")
+            if ts:
+                period_dates.append(timestamp_to_beijing_date(ts))
+    period_dates = sorted(date for date in period_dates if date)
+    period_start = period_dates[0] if period_dates else "-"
+    period_end = period_dates[-1] if period_dates else "-"
 
     group_name = (
         processed.get("group_info", {}).get("name")
@@ -339,17 +362,19 @@ def to_report_context(processed, analysis, config):
         "period_end": safe_text(period_end),
         "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "report_number": config.get("report_number", 1),
+        "activity_score_count_weight": ACTIVITY_SCORE_COUNT_WEIGHT,
+        "activity_score_quality_weight": ACTIVITY_SCORE_QUALITY_WEIGHT,
         "total_members": members_total,
         "active_members": active_members,
-        "low_quality_count": len(low_quality),
+        "score_flagged_count": score_flagged_count,
         "highlights_count": displayed_highlights_count,
         "top_members": top_members,
         "articles": articles,
         "github_items": github_items,
         "insights": insights,
         "opportunities": opportunities,
-        "low_quality_members": low_quality,
-        "low_quality_groups": low_quality_groups,
+        "score_members": score_members,
+        "score_groups": score_groups,
     }
 
 
@@ -361,7 +386,7 @@ def render_report(template_path: Path, context):
     return template.render(**context)
 
 
-def render_low_quality_report(template_path: Path, context):
+def render_scores_report(template_path: Path, context):
     with template_path.open("r", encoding="utf-8") as handle:
         template_text = handle.read()
     env = jinja2.Environment(autoescape=False)
@@ -405,49 +430,43 @@ def main():
     output_dir = Path(output_dir_env)
     processed_path = select_imported_file(output_dir)
     analysis_path = output_dir / "analyze.json"
-    template_path = skill_dir / "references" / "template.md"
+    template_path = skill_dir / "references" / "report_template.md"
     output_path = output_dir / "report.md"
-    low_quality_template_path = skill_dir / "references" / "low_quality_template.md"
-    low_quality_output_path = output_dir / "low_quality_members.md"
+    scores_template_path = skill_dir / "references" / "scores_template.md"
+    scores_output_path = output_dir / "scores.md"
 
     config = {
-        "period": {
-            "start": os.getenv("PERIOD_START") or None,
-            "end": os.getenv("PERIOD_END") or None,
-        },
         "report_number": int(os.getenv("REPORT_NUMBER", "1")),
     }
-    if not config["period"]["start"] and not config["period"]["end"]:
-        config["period"] = None
 
     if not analysis_path.exists():
         raise SystemExit(f"missing analysis file: {analysis_path}")
     if not template_path.exists():
         raise SystemExit(f"missing template: {template_path}")
-    if not low_quality_template_path.exists():
-        raise SystemExit(f"missing low quality template: {low_quality_template_path}")
+    if not scores_template_path.exists():
+        raise SystemExit(f"missing scores template: {scores_template_path}")
 
     processed = load_json(processed_path)
     analysis = load_json(analysis_path)
 
     context = to_report_context(processed, analysis, config)
-    context["low_quality_report_file"] = low_quality_output_path.name
+    context["scores_report_file"] = scores_output_path.name
 
     rendered = render_report(template_path, context)
-    low_quality_rendered = render_low_quality_report(low_quality_template_path, context)
+    scores_rendered = render_scores_report(scores_template_path, context)
     rendered = normalize_heading_spacing(rendered)
-    low_quality_rendered = normalize_heading_spacing(low_quality_rendered)
+    scores_rendered = normalize_heading_spacing(scores_rendered)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with output_path.open("w", encoding="utf-8") as handle:
         handle.write(rendered)
-    low_quality_output_path.parent.mkdir(parents=True, exist_ok=True)
-    with low_quality_output_path.open("w", encoding="utf-8") as handle:
-        handle.write(low_quality_rendered)
+    scores_output_path.parent.mkdir(parents=True, exist_ok=True)
+    with scores_output_path.open("w", encoding="utf-8") as handle:
+        handle.write(scores_rendered)
 
     print("report generated")
     print("output:", output_path)
-    print("low quality output:", low_quality_output_path)
+    print("scores output:", scores_output_path)
 
 
 if __name__ == "__main__":

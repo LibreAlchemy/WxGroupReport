@@ -28,8 +28,8 @@ def sample_processed():
         "members": {
             "wx1": {
                 "messages": [
-                    {"timestamp": "2026-03-01T08:00:00Z"},
-                    {"timestamp": "2026-03-03T09:00:00Z"},
+                    {"timestamp": "2026-02-28T16:00:00Z"},
+                    {"timestamp": "2026-03-03T16:30:00Z"},
                 ]
             }
         },
@@ -67,15 +67,19 @@ def sample_analysis():
 
 def test_to_report_context_filters_and_computes_sections():
     module = load_generate_report_module()
-    context = module.to_report_context(sample_processed(), sample_analysis(), {"period": None, "report_number": 3})
+    context = module.to_report_context(
+        sample_processed(),
+        sample_analysis(),
+        {"report_number": 3},
+    )
 
     assert context["group_name"] == "Test Group"
     assert context["period_start"] == "2026-03-01"
-    assert context["period_end"] == "2026-03-03"
+    assert context["period_end"] == "2026-03-04"
     assert context["report_number"] == 3
     assert context["total_members"] == 2
     assert context["active_members"] == 1
-    assert context["low_quality_count"] == 1
+    assert context["score_flagged_count"] == 1
     assert context["highlights_count"] == 3
     assert context["top_members"][0]["name"] == "Alice"
     assert context["articles"] == [{"title": "一篇文章", "url": "https://example.com", "author": "Alice"}]
@@ -90,7 +94,7 @@ def test_select_imported_file_raises_when_missing(tmp_path):
         module.select_imported_file(tmp_path)
 
 
-def test_main_generates_report_and_low_quality_report(tmp_path, monkeypatch, capsys):
+def test_main_generates_report_and_scores_report(tmp_path, monkeypatch, capsys):
     module = load_generate_report_module()
     output_dir = tmp_path / "out"
     output_dir.mkdir()
@@ -101,23 +105,21 @@ def test_main_generates_report_and_low_quality_report(tmp_path, monkeypatch, cap
         json.dumps(sample_analysis(), ensure_ascii=False), encoding="utf-8"
     )
 
-    monkeypatch.delenv("PERIOD_START", raising=False)
-    monkeypatch.delenv("PERIOD_END", raising=False)
     monkeypatch.setenv("REPORT_NUMBER", "1")
     monkeypatch.setattr(sys, "argv", ["generate_report.py", "-o", str(output_dir)])
     module.main()
 
     report_path = output_dir / "report.md"
-    low_quality_path = output_dir / "low_quality_members.md"
+    scores_path = output_dir / "scores.md"
     assert report_path.exists()
-    assert low_quality_path.exists()
+    assert scores_path.exists()
     report_text = report_path.read_text(encoding="utf-8")
-    low_quality_text = low_quality_path.read_text(encoding="utf-8")
+    scores_text = scores_path.read_text(encoding="utf-8")
     assert "第 1 期" in report_text
     assert "一篇文章" in report_text
     assert "repo" in report_text
-    assert "## 零发言成员（1人）" in low_quality_text
-    assert "- Bob" in low_quality_text
+    assert "## 零发言成员（1人）" in scores_text
+    assert "- Bob" in scores_text
     out = capsys.readouterr().out
     assert "report generated" in out
 

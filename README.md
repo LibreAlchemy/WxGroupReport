@@ -31,7 +31,7 @@ WxGroupReport/
     ├── analyze.json          # 分析结果
     ├── report.md             # 产出报告
     ├── report_refined.md     # 精修后的报告
-    └── low_quality_members.md
+    └── scores.md             # 成员综合分排名
 ```
 
 ## 快速开始
