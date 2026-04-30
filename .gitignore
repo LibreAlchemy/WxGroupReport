@@ -46,3 +46,4 @@ pyproject.toml
 *.log
 
 whitelist.md
+.tmp

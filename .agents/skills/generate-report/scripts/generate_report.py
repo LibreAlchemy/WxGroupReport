@@ -6,7 +6,7 @@ import re
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from bisect import bisect_right
-from urllib.parse import urlparse
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 import jinja2
 
@@ -58,7 +58,20 @@ def sanitize_url(url):
     lowered = normalized.lower()
     if not (lowered.startswith("http://") or lowered.startswith("https://")):
         return ""
-    return text
+    parsed = urlparse(normalized)
+    host = (parsed.netloc or "").lower()
+    if host == "mp.weixin.qq.com":
+        params = parse_qsl(parsed.query, keep_blank_values=True)
+        param_map = {key: value for key, value in params}
+        if "__biz" in param_map:
+            kept_params = [
+                (key, param_map[key])
+                for key in ("__biz", "mid", "idx", "sn")
+                if key in param_map
+            ]
+            parsed = parsed._replace(query=urlencode(kept_params), fragment="")
+            return urlunparse(parsed)
+    return normalized
 
 
 def sanitize_github_url(url):

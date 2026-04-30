@@ -7,18 +7,18 @@ description: 将精修后的 Markdown 报告（output/report_refined.md）渲染
 
 ## 概述
 
-该技能将 `output/report_refined.md` 解析为结构化数据，并填充到技能模板 `references/template_v0.html`，生成最终可展示页面 `output/report_final.html`。
+该技能将 `output/report_refined.md` 解析为结构化数据，并填充到技能模板 `references/template_v1.html`，生成最终可展示页面 `output/report_final.html`。
 其中 `references/design.pen` 作为模板视觉基准文件，后续调整样式时需优先与该设计稿保持一致。
 
 ## 工作流
 
 1. 校验输入文件：
-   - 必须存在 `references/template_v0.html`
+   - 必须存在 `references/template_v1.html`
    - 必须存在 `output/report_refined.md`
 2. 解析精修报告：
    - 标题、期号、统计周期、总成员、活跃成员、精彩内容数
    - 本期排行（排名/成员/综合分）
-   - 本期看点四个小节：公众号文章、精选分享、GitHub 项目、原创心得
+   - 本期看点三个小节：精选分享、开源项目、原创心得
 3. 渲染模板：
    - 用脚本处理 `{{变量}}` 与 `{{#列表}}...{{/列表}}`
 4. 输出 HTML：
@@ -39,7 +39,7 @@ python3 .agents/skills/render-report/scripts/render_report.py
 
 ### 可选参数
 
-- `--template`：模板路径（默认 `references/template_v0.html`）
+- `--template`：模板路径（默认 `references/template_v1.html`）
 - `--input`：输入 Markdown（默认 `output/report_refined.md`）
 - `--output`：输出 HTML（默认 `output/report_final.html`）
 

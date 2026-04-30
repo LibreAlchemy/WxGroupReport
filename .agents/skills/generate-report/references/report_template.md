@@ -21,33 +21,17 @@
 
 # 本期看点
 {% if articles %}
-{%- set ns = namespace(has_article_with_url=false, has_official_no_url=false) %}
-{%- for item in articles %}
-{%- if item.url %}
-{%- set ns.has_article_with_url = true %}
-{%- else %}
-{%- set ns.has_official_no_url = true %}
-{%- endif %}
-{%- endfor %}
-{% if ns.has_official_no_url %}
-## 📚 公众号 & 文章
-{%- for item in articles %}
-{%- if not item.url %}
-- 《{{ item.title }}》 @{{ item.author | replace("|", "\\|") }}
-{%- endif %}
-{%- endfor %}
-{% endif %}
-{% if ns.has_article_with_url %}
 ## 🤩 精选分享
 {%- for item in articles %}
 {%- if item.url %}
 - [{{ item.title }}]({{ item.url }}) @{{ item.author | replace("|", "\\|") }}
+{%- else %}
+- 《{{ item.title }}》 @{{ item.author | replace("|", "\\|") }}
 {%- endif %}
 {%- endfor %}
 {% endif %}
-{% endif %}
 {% if github_items %}
-## 💻 Github 项目
+## 💻 开源项目
 {%- for item in github_items %}
 - [{{ item.repo }}]({{ item.url }}) @{{ item.author | replace("|", "\\|") }}
 {%- endfor %}

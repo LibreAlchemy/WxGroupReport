@@ -142,7 +142,7 @@ def filter_effective_messages(messages: list) -> list:
     ]
 
 
-def truncate_message_content(content: str, max_chars: int = 300) -> str:
+def truncate_message_content(content: str, max_chars: int = 500) -> str:
     """截断单条消息内容，避免 prompt 被超长消息撑大"""
     text = str(content or "").strip()
     if len(text) <= max_chars:
@@ -150,17 +150,23 @@ def truncate_message_content(content: str, max_chars: int = 300) -> str:
     return text[:max_chars] + "..."
 
 
-def strip_quoted_reply_blocks(content: str) -> str:
-    """剥离消息中的内联引用块，避免把被引用内容算到当前成员头上。"""
+def truncate_quoted_reply_blocks(content: str, max_chars: int = 100) -> str:
+    """截断消息中的内联引用块，保留少量上下文但避免把整段被引用内容算到当前成员头上。"""
     text = str(content or "")
 
     # 常见导出格式：正文[引用 昵称：被引用内容]
+    def replace_quote(match: re.Match) -> str:
+        block = match.group(0)
+        if len(block) <= max_chars:
+            return block
+        return block[:max_chars] + "..."
+
     prev = None
     while prev != text:
         prev = text
-        text = re.sub(r"\[引用 [^\[\]]*?\]", "", text)
+        text = re.sub(r"\[引用 [^\[\]]*?\]", replace_quote, text)
 
-    # 清理剥离引用后留下的多余空白
+    # 清理处理引用后留下的多余空白
     text = re.sub(r"[ \t]+\n", "\n", text)
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text.strip()
@@ -169,11 +175,15 @@ def strip_quoted_reply_blocks(content: str) -> str:
 def format_messages_for_prompt(messages: list) -> str:
     """将消息按时间升序格式化为 prompt 文本"""
     sorted_messages = sorted(messages, key=lambda m: m.get("timestamp", ""))
-    return "\n".join(
-        f"[{m.get('timestamp', '')}] {truncate_message_content(strip_quoted_reply_blocks(m.get('content', '')))}"
-        for m in sorted_messages
-        if strip_quoted_reply_blocks(m.get("content", "")).strip()
-    )
+    formatted_lines = []
+    for message in sorted_messages:
+        content = truncate_quoted_reply_blocks(message.get("content", ""))
+        if not content.strip():
+            continue
+        formatted_lines.append(
+            f"[{message.get('timestamp', '')}] {truncate_message_content(content)}"
+        )
+    return "\n".join(formatted_lines)
 
 
 def build_prompt(wxid: str, nickname: str, filtered_messages: list) -> str:

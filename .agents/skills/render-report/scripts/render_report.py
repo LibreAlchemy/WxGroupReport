@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 将 output/report_refined.md 渲染为最终 HTML：
-- 模板：template_v0.html（技能 references 目录）
+- 模板：template_v1.html（技能 references 目录）
 - 输出：output/report_final.html
 """
 
@@ -93,7 +93,7 @@ def parse_report(markdown_text: str) -> dict:
                     current = "articles"
                 elif "精选分享" in h:
                     current = "shares"
-                elif "Github 项目" in h or "GitHub 项目" in h:
+                elif "开源项目" in h or "Github 项目" in h or "GitHub 项目" in h:
                     current = "github_projects"
                 elif "原创心得" in h:
                     current = "insights"
@@ -109,12 +109,16 @@ def parse_report(markdown_text: str) -> dict:
             m_insight = re.match(r'^"(.*)"\s*[—-]\s*@(.+)$', text)
             if m_link:
                 title_v, url_v, author = m_link.groups()
-                items[current].append(
+                target = current
+                if current == "shares" and "github.com" in url_v.lower():
+                    target = "github_projects"
+                items[target].append(
                     {"title": title_v.strip(), "author": author.strip(), "url": url_v.strip()}
                 )
             elif m_article:
                 title_v, author = m_article.groups()
-                items[current].append({"title": f"《{title_v.strip()}》", "author": author.strip()})
+                target = "articles" if current == "shares" else current
+                items[target].append({"title": f"《{title_v.strip()}》", "author": author.strip()})
             elif m_insight:
                 title_v, author = m_insight.groups()
                 items[current].append({"title": title_v.strip(), "author": author.strip()})
@@ -173,12 +177,12 @@ def render_html(template_text: str, data: dict) -> str:
 
 
 def main() -> None:
-    default_template = Path(__file__).resolve().parent.parent / "references" / "template_v0.html"
+    default_template = Path(__file__).resolve().parent.parent / "references" / "template_v1.html"
     parser = argparse.ArgumentParser(description="将 report_refined.md 渲染为 report_final.html")
     parser.add_argument(
         "--template",
         default=str(default_template),
-        help="HTML 模板路径（默认技能内 references/template_v0.html）",
+        help="HTML 模板路径（默认技能内 references/template_v1.html）",
     )
     parser.add_argument(
         "--input",

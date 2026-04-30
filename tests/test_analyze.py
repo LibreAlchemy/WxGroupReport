@@ -69,7 +69,7 @@ def test_filter_effective_messages_excludes_jielong_and_exported_image_paths():
 
 def test_build_prompt_formats_messages_with_timestamp_sorted_and_truncated():
     analyze = load_analyze_module()
-    long_content = "A" * 320
+    long_content = "A" * 620
     filtered_messages = [
         {"timestamp": "2026-03-03T10:00:00Z", "content": "后发的消息"},
         {"timestamp": "2026-03-01T08:00:00Z", "content": long_content},
@@ -78,7 +78,7 @@ def test_build_prompt_formats_messages_with_timestamp_sorted_and_truncated():
     prompt = analyze.build_prompt("wxid_alice", "Alice", filtered_messages)
     message_section = prompt.split("## 消息内容\n", 1)[1].split("\n\n## 注意事项", 1)[0]
 
-    assert "[2026-03-01T08:00:00Z] " + ("A" * 300) + "..." in prompt
+    assert "[2026-03-01T08:00:00Z] " + ("A" * 500) + "..." in prompt
     assert "[2026-03-03T10:00:00Z] 后发的消息" in prompt
     assert prompt.index("2026-03-01T08:00:00Z") < prompt.index("2026-03-03T10:00:00Z")
     assert "0. " not in message_section
@@ -86,8 +86,19 @@ def test_build_prompt_formats_messages_with_timestamp_sorted_and_truncated():
     assert "需要结合消息发送时间理解上下文" in prompt
     assert "避免因为单次高质量发言或短时高频发言而高估整体质量" in prompt
     assert "quality_score 主要衡量内容质量、信息密度和有效性" in prompt
-    assert "highlights 总数不超过 5 条" in prompt
+    assert "highlights 总数不超过 10 条" in prompt
     assert "必须优先填写成员消息中的原文片段" in prompt
+
+
+def test_truncate_quoted_reply_blocks_preserves_quote_prefix():
+    analyze = load_analyze_module()
+    long_quote = "[引用 Alice：" + ("B" * 140) + "]"
+
+    cleaned = analyze.truncate_quoted_reply_blocks(f"前文{long_quote}后文")
+
+    assert cleaned.startswith("前文[引用 Alice：")
+    assert cleaned.endswith("...后文")
+    assert "B" * 110 not in cleaned
 
 
 def test_sanitize_highlight_output_removes_empty_url():

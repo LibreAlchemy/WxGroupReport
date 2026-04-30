@@ -37,14 +37,34 @@ def sample_markdown():
 | 2 | Bob | 80.0 |
 
 # 本期看点
-## 公众号文章
-- 《一篇文章》 @Alice
 ## 精选分享
+- 《一篇文章》 @Alice
 - [分享链接](https://example.com/share) @Bob
-## GitHub 项目
+## 开源项目
 - [repo](https://github.com/org/repo) @Alice
 ## 原创心得
 - "原文观点" - @Bob
+"""
+
+
+def legacy_markdown():
+    return """# 麦田精选（第 3 期）
+
+**期号**：第 3 期
+**统计周期**：2026-03-01 ~ 2026-03-28
+**总成员数**：89
+**活跃成员数**：60
+**精彩内容数**：4
+
+# 本期看点
+## 公众号文章
+- 《旧文章》 @Alice
+## 精选分享
+- [旧分享](https://example.com/share) @Bob
+## GitHub 项目
+- [old-repo](https://github.com/org/repo) @Alice
+## 原创心得
+- "旧观点" - @Bob
 """
 
 
@@ -64,6 +84,16 @@ def test_parse_report_extracts_sections():
     assert data["shares"] == [{"title": "分享链接", "author": "Bob", "url": "https://example.com/share"}]
     assert data["github_projects"] == [{"title": "repo", "author": "Alice", "url": "https://github.com/org/repo"}]
     assert data["insights"] == [{"title": "原文观点", "author": "Bob"}]
+
+
+def test_parse_report_supports_legacy_four_section_markdown():
+    module = load_render_report_module()
+    data = module.parse_report(legacy_markdown())
+
+    assert data["articles"] == [{"title": "《旧文章》", "author": "Alice"}]
+    assert data["shares"] == [{"title": "旧分享", "author": "Bob", "url": "https://example.com/share"}]
+    assert data["github_projects"] == [{"title": "old-repo", "author": "Alice", "url": "https://github.com/org/repo"}]
+    assert data["insights"] == [{"title": "旧观点", "author": "Bob"}]
 
 
 def test_render_html_replaces_sections():
@@ -114,4 +144,3 @@ def test_main_raises_when_template_missing(tmp_path, monkeypatch):
     )
     with pytest.raises(SystemExit, match="missing template"):
         module.main()
-

@@ -30,8 +30,8 @@ except ImportError:  # pragma: no cover - 仅在依赖缺失时触发
     load_dotenv = None
 
 # 消息类型常量
-SYSTEM_MSG_TYPES = {80}  # 系统消息
-VALID_MSG_TYPES = {0, 7, 24, 25, 27}  # 有效消息
+SYSTEM_MSG_TYPES = {80}  # 系统消息（撤回/加入群聊/）
+VALID_MSG_TYPES = {0, 7, 24, 25}  # 有效消息：0 = 普通消息，7 = 图片/表情包/公众号文章/外链/转发消息，25 = 回复消息
 
 
 @dataclass

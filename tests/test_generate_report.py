@@ -88,6 +88,19 @@ def test_to_report_context_filters_and_computes_sections():
     assert context["opportunities"] == [{"summary": "招聘机会", "author": "Alice"}]
 
 
+def test_sanitize_url_trims_wechat_mp_query_params():
+    module = load_generate_report_module()
+
+    cleaned = module.sanitize_url(
+        "https://mp.weixin.qq.com/s?__biz=MzAwNjI5MTYyMw==&mid=2651508237&idx=1&sn=548cf42dd4d865ddb2839e68ce217077&chksm=8128f442491aea92d8cc2011205a5b650f10a4f30724bc84695fcc733582c588f4a14b0a69ad&mpshare=1&scene=1&srcid=0416PW3f8KUzukVodtNQxUjA&sharer_shareinfo=b80fcc17e7842ad93"
+    )
+
+    assert (
+        cleaned
+        == "https://mp.weixin.qq.com/s?__biz=MzAwNjI5MTYyMw%3D%3D&mid=2651508237&idx=1&sn=548cf42dd4d865ddb2839e68ce217077"
+    )
+
+
 def test_select_imported_file_raises_when_missing(tmp_path):
     module = load_generate_report_module()
     with pytest.raises(SystemExit, match="missing imported file"):
@@ -117,6 +130,11 @@ def test_main_generates_report_and_scores_report(tmp_path, monkeypatch, capsys):
     scores_text = scores_path.read_text(encoding="utf-8")
     assert "第 1 期" in report_text
     assert "一篇文章" in report_text
+    assert "## 🤩 精选分享" in report_text
+    assert "## 💻 开源项目" in report_text
+    assert "## 📚 公众号 & 文章" not in report_text
+    assert "## 💻 Github 项目" not in report_text
+    assert "[一篇文章](https://example.com) @Alice" in report_text
     assert "repo" in report_text
     assert "## 零发言成员（1人）" in scores_text
     assert "- Bob" in scores_text
