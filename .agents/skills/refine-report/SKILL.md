@@ -17,7 +17,7 @@ description: 对已生成的群聊报告进行“本期看点”小节精修，�
    - 加载 `references/refine_rules.md`。
 2. 使用 subagent 执行精修（强制）：
    - 必须通过 subagent 生成精修报告，不允许在主代理直接改写报告正文。
-   - subagent 任务输入需包含：`output/report.md`。
+   - subagent 任务输入需包含：`output/report.md` 和 `references/refine_rules.md`。
 3. 创建精修目标：
    - 先复制全量报告到 `output/report_refined.md`。
 4. 精修 `# 本期看点`：
@@ -35,13 +35,6 @@ description: 对已生成的群聊报告进行“本期看点”小节精修，�
 
 - 全量报告：`output/report.md`（保持不变）
 - 精修报告：`output/report_refined.md`
-
-## 规则来源
-
-始终使用：
-- `references/refine_rules.md`
-
-当规则与原报告内容冲突时，仅在精修输出中以规则文件为准。
 
 ## 约束
 
