@@ -86,14 +86,7 @@
       .stat {
         border-radius: 14px;
         padding: 12px;
-      }
-
-      .stat:first-child {
         background: #f1e6da;
-      }
-
-      .stat:last-child {
-        background: #e9be9e;
       }
 
       .stat-label {
@@ -243,6 +236,7 @@
       .item-author {
         font-size: 10px;
         color: #8a8a8a;
+        margin-top: 4px;
       }
 
       .item-inline {
@@ -317,7 +311,7 @@
         white-space: normal;
         overflow: visible;
         text-overflow: clip;
-        line-height: 1.35;
+        line-height: 1.5;
       }
 
       .insight-item .item-author {
@@ -375,6 +369,16 @@
 
       <section class="card">
         <h2 class="card-title">本期看点</h2>
+
+        <div class="topic-head"><span class="topic-bar" style="background:#f97316"></span><h3 class="topic-title">新闻热点</h3></div>
+        <div class="group">
+          {{#news_items}}
+          <div class="item">
+            <div class="item-inline"><span class="title-inline">{{title}}</span><span class="author-inline">@{{author}}</span></div>
+            <div class="item-link"><a href="{{url}}" target="_blank" rel="noopener noreferrer">{{url}}</a></div>
+          </div>
+          {{/news_items}}
+        </div>
 
         <div class="topic-head"><span class="topic-bar" style="background:#f59e0b"></span><h3 class="topic-title">精选分享</h3></div>
         <div class="group">

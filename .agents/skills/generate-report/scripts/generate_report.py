@@ -6,10 +6,22 @@ import re
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from bisect import bisect_right
-from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
+from urllib.parse import urlparse
+from dotenv import load_dotenv
 
 import jinja2
 
+SHARED_SKILL_DIR = Path(__file__).resolve().parents[2] / "shared"
+if str(SHARED_SKILL_DIR) not in sys.path:
+    sys.path.insert(0, str(SHARED_SKILL_DIR))
+
+from highlight_url_repair import (
+    build_title_url_index_from_processed,
+    repair_highlights,
+    sanitize_url,
+)
+
+load_dotenv()
 
 ACTIVITY_SCORE_COUNT_WEIGHT = 0.5
 ACTIVITY_SCORE_QUALITY_WEIGHT = 0.5
@@ -29,8 +41,8 @@ def ensure_table_safe(value):
     return safe_text(value).replace("|", "\\|")
 
 
-def read_member_quality_score(member):
-    return float(member.get("qualityScore", 0.0))
+def read_member_score(member):
+    return float(member.get("score", 0.0))
 
 
 def timestamp_to_beijing_date(timestamp):
@@ -46,32 +58,6 @@ def timestamp_to_beijing_date(timestamp):
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=timezone.utc)
     return parsed.astimezone(BEIJING_TZ).date().isoformat()
-
-
-def sanitize_url(url):
-    text = safe_text(url)
-    normalized = text.strip("[]()").strip()
-    if not normalized:
-        return ""
-    if normalized == "链接":
-        return ""
-    lowered = normalized.lower()
-    if not (lowered.startswith("http://") or lowered.startswith("https://")):
-        return ""
-    parsed = urlparse(normalized)
-    host = (parsed.netloc or "").lower()
-    if host == "mp.weixin.qq.com":
-        params = parse_qsl(parsed.query, keep_blank_values=True)
-        param_map = {key: value for key, value in params}
-        if "__biz" in param_map:
-            kept_params = [
-                (key, param_map[key])
-                for key in ("__biz", "mid", "idx", "sn")
-                if key in param_map
-            ]
-            parsed = parsed._replace(query=urlencode(kept_params), fragment="")
-            return urlunparse(parsed)
-    return normalized
 
 
 def sanitize_github_url(url):
@@ -132,19 +118,19 @@ def normalize_percentile(value, sorted_values):
 
 def compute_activity_score_100(
     msg_count,
-    avg_score,
+    score,
     sorted_msg_counts,
-    min_avg_score,
-    max_avg_score,
+    min_score,
+    max_score,
     weight_count=ACTIVITY_SCORE_COUNT_WEIGHT,
     weight_quality=ACTIVITY_SCORE_QUALITY_WEIGHT,
 ):
     norm_msg_count = normalize_percentile(msg_count, sorted_msg_counts)
-    norm_avg_score = normalize_min_max(avg_score, min_avg_score, max_avg_score)
+    norm_member_score = normalize_min_max(score, min_score, max_score)
     weight_sum = weight_count + weight_quality
     if weight_sum <= 0:
         return 0.0
-    return 100 * ((weight_count * norm_msg_count + weight_quality * norm_avg_score) / weight_sum)
+    return 100 * ((weight_count * norm_msg_count + weight_quality * norm_member_score) / weight_sum)
 
 
 def compute_score_members(member_scores):
@@ -155,20 +141,20 @@ def compute_score_members(member_scores):
     }
     msg_counts = [m.get("messageCount", 0) for m in member_scores]
     sorted_msg_counts = sorted(msg_counts)
-    avg_scores = [read_member_quality_score(m) for m in member_scores]
-    min_avg_score = min(avg_scores, default=0.0)
-    max_avg_score = max(avg_scores, default=0.0)
+    scores = [read_member_score(m) for m in member_scores]
+    min_score = min(scores, default=0.0)
+    max_score = max(scores, default=0.0)
 
     score_members = []
     for m in member_scores:
         msg_count = m.get("messageCount", 0)
-        avg_score = read_member_quality_score(m)
+        score = read_member_score(m)
         activity_score = compute_activity_score_100(
             msg_count,
-            avg_score,
+            score,
             sorted_msg_counts,
-            min_avg_score,
-            max_avg_score,
+            min_score,
+            max_score,
             ACTIVITY_SCORE_COUNT_WEIGHT,
             ACTIVITY_SCORE_QUALITY_WEIGHT,
         )
@@ -199,7 +185,7 @@ def compute_score_members(member_scores):
                     "name": safe_text(m.get("nickname") or m.get("wxid") or ""),
                     "summary": safe_text(m.get("summary") or ""),
                     "msg_count": msg_count,
-                    "avg_score": avg_score,
+                    "score": score,
                     "activity_score": round(activity_score, 1),
                     "status": status,
                     "reason": reason,
@@ -265,20 +251,20 @@ def to_report_context(processed, analysis, config):
 
     msg_counts = [m.get("messageCount", 0) for m in member_scores]
     sorted_msg_counts = sorted(msg_counts)
-    avg_scores = [read_member_quality_score(m) for m in member_scores]
-    min_avg_score = min(avg_scores, default=0.0)
-    max_avg_score = max(avg_scores, default=0.0)
+    scores = [read_member_score(m) for m in member_scores]
+    min_score = min(scores, default=0.0)
+    max_score = max(scores, default=0.0)
 
     enriched_members = []
     for m in member_scores:
         msg_count = m.get("messageCount", 0)
-        avg_score = read_member_quality_score(m)
+        score = read_member_score(m)
         activity_score = compute_activity_score_100(
             msg_count,
-            avg_score,
+            score,
             sorted_msg_counts,
-            min_avg_score,
-            max_avg_score,
+            min_score,
+            max_score,
             ACTIVITY_SCORE_COUNT_WEIGHT,
             ACTIVITY_SCORE_QUALITY_WEIGHT,
         )
@@ -287,7 +273,7 @@ def to_report_context(processed, analysis, config):
                 "name": ensure_table_safe(m.get("nickname") or m.get("wxid") or ""),
                 "sort_name": safe_text(m.get("nickname") or m.get("wxid") or "").lower(),
                 "msg_count": msg_count,
-                "avg_score": avg_score,
+                "score": score,
                 "activity_score": activity_score,
             }
         )
@@ -297,7 +283,7 @@ def to_report_context(processed, analysis, config):
         key=lambda m: (
             -m["activity_score"],
             -m["msg_count"],
-            -m["avg_score"],
+            -m["score"],
             m["sort_name"],
         ),
     )
@@ -305,12 +291,13 @@ def to_report_context(processed, analysis, config):
         {
             "name": m["name"],
             "msg_count": m["msg_count"],
-            "avg_score": m["avg_score"],
+            "score": m["score"],
             "activity_score": m["activity_score"],
         }
         for m in sorted_members[:10]
     ]
 
+    news_items = []
     articles = []
     github_items = []
     insights = []
@@ -318,10 +305,18 @@ def to_report_context(processed, analysis, config):
 
     for item in highlights:
         item_type = item.get("type")
-        if item_type not in {"article", "github", "insight", "opportunity"}:
+        if item_type not in {"news", "article", "github", "insight", "opportunity"}:
             continue
         author = ensure_table_safe(item.get("author") or "")
-        if item_type == "article":
+        if item_type == "news":
+            url = sanitize_url(item.get("url") or "")
+            if not url:
+                continue
+            title = safe_text(item.get("content") or "")
+            if is_invalid_article_title(title):
+                continue
+            news_items.append({"title": title, "url": url, "author": author})
+        elif item_type == "article":
             url = sanitize_url(item.get("url") or "")
             title = safe_text(item.get("content") or "")
             if is_invalid_article_title(title):
@@ -366,8 +361,10 @@ def to_report_context(processed, analysis, config):
         or ""
     )
 
-    # 与模板“本期看点”保持一致：只统计会被展示的三类条目
-    displayed_highlights_count = len(articles) + len(github_items) + len(insights)
+    # 与模板“本期看点”保持一致：只统计会被展示的四类条目
+    displayed_highlights_count = (
+        len(news_items) + len(articles) + len(github_items) + len(insights)
+    )
 
     return {
         "group_name": safe_text(group_name),
@@ -381,6 +378,7 @@ def to_report_context(processed, analysis, config):
         "active_members": active_members,
         "score_flagged_count": score_flagged_count,
         "highlights_count": displayed_highlights_count,
+        "news_items": news_items,
         "top_members": top_members,
         "articles": articles,
         "github_items": github_items,
@@ -461,6 +459,12 @@ def main():
 
     processed = load_json(processed_path)
     analysis = load_json(analysis_path)
+    analysis_data = analysis.get("data") or {}
+    analysis_data["highlights"] = repair_highlights(
+        analysis_data.get("highlights") or [],
+        build_title_url_index_from_processed(processed),
+    )
+    analysis["data"] = analysis_data
 
     context = to_report_context(processed, analysis, config)
     context["scores_report_file"] = scores_output_path.name

@@ -8,8 +8,61 @@
 from __future__ import annotations
 
 import argparse
+import math
 import re
 from pathlib import Path
+
+
+def count_highlight_items(markdown_text: str) -> int:
+    lines = markdown_text.splitlines()
+    in_highlights = False
+    current = None
+    count = 0
+
+    for line in lines:
+        if line.startswith("# "):
+            in_highlights = line.strip() == "# 本期看点"
+            current = None
+            continue
+        if not in_highlights:
+            continue
+        if line.startswith("## "):
+            current = "news_items" if "新闻热点" in line else "other"
+            continue
+        if in_highlights and line.startswith("- "):
+            if current == "news_items" and not re.match(r"^-\s+\[.*?\]\(https?://.*?\)\s*@", line):
+                continue
+            count += 1
+
+    return count
+
+
+def sync_highlights_count(markdown_text: str) -> tuple[str, int]:
+    actual_count = count_highlight_items(markdown_text)
+    updated_text, replacements = re.subn(
+        r"^(\*\*精彩内容数\*\*：)\s*\d+\s*$",
+        rf"\g<1>{actual_count}",
+        markdown_text,
+        count=1,
+        flags=re.M,
+    )
+    if replacements == 0:
+        raise ValueError("missing highlights count field")
+    return updated_text, actual_count
+
+
+def compute_rank_bar_width(score: float, max_score: float, min_score: float, min_width: float = 68.0) -> float:
+    """Spread close ranking scores with a log-scaled gap from the top score."""
+    if max_score <= 0:
+        return min_width
+
+    span = max_score - min_score
+    if span <= 0:
+        return 100.0
+
+    gap_from_top = max_score - score
+    transformed = 1 - (math.log1p(gap_from_top) / math.log1p(span))
+    return min_width + (transformed * (100 - min_width))
 
 
 def parse_report(markdown_text: str) -> dict:
@@ -29,9 +82,6 @@ def parse_report(markdown_text: str) -> dict:
 
     m_active = re.search(r"^\*\*活跃成员数\*\*：\s*(\d+)", markdown_text, re.M)
     active_members = m_active.group(1) if m_active else "0"
-
-    m_high = re.search(r"^\*\*精彩内容数\*\*：\s*(\d+)", markdown_text, re.M)
-    highlights_count = m_high.group(1) if m_high else "0"
 
     section_idx = {}
     for i, line in enumerate(lines):
@@ -66,6 +116,7 @@ def parse_report(markdown_text: str) -> dict:
 
     if rankings:
         max_score = max(r["score_num"] for r in rankings)
+        min_score = min(r["score_num"] for r in rankings)
         min_width = 68.0
         fill_palette = {
             1: "#E39A73FF",
@@ -75,12 +126,22 @@ def parse_report(markdown_text: str) -> dict:
             5: "#E39A7320",
         }
         for r in rankings:
-            ratio = (r["score_num"] / max_score) if max_score > 0 else 0
-            width = min_width + (ratio * (100 - min_width))
+            width = compute_rank_bar_width(
+                score=r["score_num"],
+                max_score=max_score,
+                min_score=min_score,
+                min_width=min_width,
+            )
             r["bar_width"] = f"{width:.1f}"
             r["bar_color"] = fill_palette.get(r["rank"], "#E39A7320")
 
-    items = {"articles": [], "shares": [], "github_projects": [], "insights": []}
+    items = {
+        "news_items": [],
+        "articles": [],
+        "shares": [],
+        "github_projects": [],
+        "insights": [],
+    }
     start = section_idx.get("# 本期看点")
     if start is not None:
         current = None
@@ -89,7 +150,9 @@ def parse_report(markdown_text: str) -> dict:
                 break
             if ln.startswith("## "):
                 h = ln.strip()
-                if "公众号" in h:
+                if "新闻热点" in h:
+                    current = "news_items"
+                elif "公众号" in h:
                     current = "articles"
                 elif "精选分享" in h:
                     current = "shares"
@@ -118,7 +181,8 @@ def parse_report(markdown_text: str) -> dict:
             elif m_article:
                 title_v, author = m_article.groups()
                 target = "articles" if current == "shares" else current
-                items[target].append({"title": f"《{title_v.strip()}》", "author": author.strip()})
+                if target != "news_items":
+                    items[target].append({"title": f"《{title_v.strip()}》", "author": author.strip()})
             elif m_insight:
                 title_v, author = m_insight.groups()
                 items[current].append({"title": title_v.strip(), "author": author.strip()})
@@ -132,14 +196,20 @@ def parse_report(markdown_text: str) -> dict:
                         }
                     )
 
+    highlights_count = sum(
+        len(items[key])
+        for key in ["news_items", "articles", "shares", "github_projects", "insights"]
+    )
+
     return {
         "issue": issue,
         "title_main": title_main,
         "period": period,
         "total_members": total_members,
         "active_members": active_members,
-        "highlights_count": highlights_count,
+        "highlights_count": str(highlights_count),
         "rankings": rankings[:10],
+        "news_items": items["news_items"],
         "articles": items["articles"],
         "shares": items["shares"],
         "github_projects": items["github_projects"],
@@ -169,6 +239,7 @@ def render_html(template_text: str, data: dict) -> str:
         html = html.replace("{{" + k + "}}", str(data[k]))
 
     html = render_sections(html, "rankings", data["rankings"])
+    html = render_sections(html, "news_items", data["news_items"])
     html = render_sections(html, "articles", data["articles"])
     html = render_sections(html, "shares", data["shares"])
     html = render_sections(html, "github_projects", data["github_projects"])
@@ -207,6 +278,10 @@ def main() -> None:
 
     template_text = template_path.read_text(encoding="utf-8")
     markdown_text = input_path.read_text(encoding="utf-8")
+    synced_markdown_text, synced_highlights_count = sync_highlights_count(markdown_text)
+    if synced_markdown_text != markdown_text:
+        input_path.write_text(synced_markdown_text, encoding="utf-8")
+    markdown_text = synced_markdown_text
     data = parse_report(markdown_text)
     html = render_html(template_text, data)
 
@@ -216,10 +291,12 @@ def main() -> None:
     print(
         "counts",
         len(data["rankings"]),
+        len(data["news_items"]),
         len(data["articles"]),
         len(data["shares"]),
         len(data["github_projects"]),
         len(data["insights"]),
+        synced_highlights_count,
     )
 
 

@@ -19,6 +19,12 @@ from dotenv import load_dotenv
 import litellm
 from pydantic import BaseModel, Field
 
+SHARED_SKILL_DIR = Path(__file__).resolve().parents[2] / "shared"
+if str(SHARED_SKILL_DIR) not in sys.path:
+    sys.path.insert(0, str(SHARED_SKILL_DIR))
+
+from highlight_url_repair import build_title_url_index_from_messages, repair_highlights
+
 # 修复 Windows 控制台编码
 if sys.platform == "win32":
     import codecs
@@ -66,27 +72,16 @@ def resolve_max_workers() -> int:
 MAX_WORKERS = resolve_max_workers()
 
 class Highlight(BaseModel):
-    type: str = Field(description="文章|GitHub|见解|机会 (article|github|insight|opportunity)")
+    type: str = Field(description="新闻|文章|GitHub|见解|机会 (news|article|github|insight|opportunity)")
     content: str = Field(description="高亮内容的简短描述")
     url: str = Field(default="", description="相关的 URL 链接")
 
 
-class Stats(BaseModel):
-    resource: int = Field(default=0, description="资源分享")
-    technical: int = Field(default=0, description="技术探讨")
-    qa: int = Field(default=0, description="问答/求助")
-    discussion: int = Field(default=0, description="一般讨论")
-    insight: int = Field(default=0, description="深度见解")
-    opportunity: int = Field(default=0, description="合作机会")
-    reply: int = Field(default=0, description="回复他人")
-
-
 class AnalysisResult(BaseModel):
     summary: str = Field(description="成员消息的总结（30-100字）")
-    quality_score: int = Field(
+    score: int = Field(
         default=50, ge=0, le=100, description="成员整体内容质量分（0-100）"
     )
-    stats: Stats = Field(description="各类型消息的数量统计")
     highlights: List[Highlight] = Field(default_factory=list, description="消息中的亮点内容")
 
 
@@ -125,8 +120,7 @@ def normalize_analysis_payload(payload: dict) -> AnalysisResult:
     """对模型原始 JSON 做兜底归一化，再交给 Pydantic 校验。"""
     normalized = {
         "summary": payload.get("summary", "") or "",
-        "quality_score": payload.get("quality_score", 50),
-        "stats": payload.get("stats") or {},
+        "score": payload.get("score", 50),
         "highlights": payload.get("highlights") or [],
     }
     return AnalysisResult.model_validate(normalized)
@@ -195,23 +189,22 @@ def build_prompt(wxid: str, nickname: str, filtered_messages: list) -> str:
 
 ## 注意事项
 1. 总结要客观准确，涵盖成员的主要言论特点。
-2. stats 统计应基于消息内容进行合理分类。
-3. 需要结合消息发送时间理解上下文，避免忽略先后顺序而误判消息语义或成员意图。
-4. highlights 仅记录高价值内容，且 type 必须严格使用以下定义：
-   - article: 公众号/博客/新闻/技术文章。`content` 必须是文章原始标题；若无法确定原始标题，`content` 置为空字符串。
+2. 需要结合消息发送时间理解上下文，避免忽略先后顺序而误判消息语义或成员意图。
+3. highlights 仅记录高价值内容，且 type 必须严格使用以下定义：
+   - news: 有明确链接的宽泛资讯/时效性动态，包括行业新闻、产品/模型/公司/平台动态、政策/规则变化等。`content` 必须是原始标题或可读标题；若无法确定标题或消息中没有明确链接，不要提取为 news。
+   - article: 非新闻型公众号/博客/技术文章/教程/资源文章。`content` 必须是文章原始标题；若无法确定原始标题，`content` 置为空字符串。
    - github: GitHub 仓库/代码项目。`content` 根据对话内容总结该仓库描述。
    - insight: 原创观点/经验总结/判断结论。`content` 必须优先填写成员消息中的原文片段，尽量逐字摘录；只有原文过长或存在明显口语噪音时，才允许做最小必要整理，但不得改写原意。
    - opportunity: 招聘/内推/合作招募/项目招募等机会信息。`content` 填机会摘要。
-5. `highlights.url` 仅在消息中存在明确链接时填写，否则置为空字符串。
-6. 只提取当前成员自己新增的高价值内容；回复、引用、转述里的标题、链接、仓库和机会信息都不算当前成员的 highlights，除非该成员在引用之外提供了明确的新链接或实质性补充。
-7. 必须输出 quality_score（0-100），用于评估成员整体内容质量，尽量拉开分布。
-8. 需要关注成员在统计周期内的持续性与阶段性表现，避免因为单次高质量发言或短时高频发言而高估整体质量。
-9. quality_score 主要衡量内容质量、信息密度和有效性，不应因消息数量多而直接提高，也不应因消息数量少而直接降低。
-10. stats 中 resource/technical/qa/discussion/insight/opportunity 应按每条消息的主属性归类，尽量避免一条消息重复计入多个主类别；reply 可作为附加互动标签单独统计。
-11. highlights 应少而精，只保留最有代表性的高价值内容；如果没有足够高价值的内容，可返回空数组。highlights 总数不超过 10 条。
-12. summary 需要尽量同时覆盖：主要话题、发言特点、整体价值判断，避免只复述消息表面内容。
+4. `highlights.url` 仅在消息中存在明确链接时填写，否则置为空字符串；news 类型必须有明确 URL，否则不要提取。提取完整准确的链接。
+5. 只提取当前成员自己新增的高价值内容；回复、引用、转述里的标题、链接、仓库和机会信息都不算当前成员的 highlights，除非该成员在引用之外提供了明确的新链接或实质性补充。
+6. 必须输出 score（0-100），用于评估成员整体内容质量，尽量拉开分布。
+7. 需要关注成员在统计周期内的持续性与阶段性表现，避免因为单次高质量发言或短时高频发言而高估整体质量。
+8. score 主要衡量内容质量、信息密度和有效性，不应因消息数量多而直接提高，也不应因消息数量少而直接降低。
+9. highlights 应少而精，只保留最有代表性的高价值内容；如果没有足够高价值的内容，可返回空数组。highlights 总数不超过 10 条。
+10. summary 需要尽量同时覆盖：主要话题、发言特点、整体价值判断，避免只复述消息表面内容。
 
-## quality_score 评分锚点
+## score 评分锚点
 - 0~20: 几乎无信息量，纯表情/灌水/重复复读
 - 21~40: 信息量较低，闲聊为主，偶有有效内容
 - 41~60: 有一定信息量，包含问题、回复或一般观点
@@ -221,9 +214,8 @@ def build_prompt(wxid: str, nickname: str, filtered_messages: list) -> str:
 ## 输出格式 (JSON)
 {{
   "summary": "总结（30-100字）",
-  "quality_score": 0,
-  "stats": {{"resource": 0, "technical": 0, "qa": 0, "discussion": 0, "insight": 0, "opportunity": 0, "reply": 0}},
-  "highlights": [{{"type": "article|github|insight|opportunity", "content": "", "url": ""}}]
+  "score": 0,
+  "highlights": [{{"type": "news|article|github|insight|opportunity", "content": "", "url": ""}}]
 }}
 
 ## 成员: {nickname} ({len(filtered_messages)}条消息)
@@ -249,9 +241,8 @@ async def analyze_member(sem, wxid: str, nickname: str, messages: list, inflight
                     "wxid": wxid,
                     "nickname": nickname,
                     "messageCount": 0,
-                    "qualityScore": 0,
+                    "score": 0,
                     "summary": "无消息",
-                    "stats": {},
                     "highlights": [],
                     "status": "zero_activity",
                     "apiDurationSec": round(time.perf_counter() - t0, 3),
@@ -272,18 +263,17 @@ async def analyze_member(sem, wxid: str, nickname: str, messages: list, inflight
                 content = extract_json_payload(response.choices[0].message.content)
                 result = normalize_analysis_payload(json.loads(content))
                 
-                stats_dict = result.stats.model_dump()
-                quality_score = max(0, min(100, int(result.quality_score)))
+                score = max(0, min(100, int(result.score)))
 
                 return {
                     "wxid": wxid,
                     "nickname": nickname,
                     "messageCount": effective_count,
-                    "qualityScore": round(float(quality_score), 1),
+                    "score": round(float(score), 1),
                     "summary": result.summary,
-                    "stats": stats_dict,
-                    "highlights": sanitize_highlight_output(
-                        [h.model_dump() for h in result.highlights]
+                    "highlights": repair_highlights(
+                        sanitize_highlight_output([h.model_dump() for h in result.highlights]),
+                        build_title_url_index_from_messages(messages),
                     ),
                     "status": "normal",
                     "apiDurationSec": round(time.perf_counter() - t0, 3),
@@ -294,9 +284,8 @@ async def analyze_member(sem, wxid: str, nickname: str, messages: list, inflight
                     "wxid": wxid,
                     "nickname": nickname,
                     "messageCount": effective_count,
-                    "qualityScore": 0,
+                    "score": 0,
                     "summary": "",
-                    "stats": {},
                     "highlights": [],
                     "status": "error",
                     "error": str(e),

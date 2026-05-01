@@ -8,6 +8,7 @@ description: 使用大模型并发分析已处理的微信群成员消息，输�
 ## 概述
 
 并行分析成员消息，输出成员级总结、质量分和精彩内容。
+精彩内容 `highlights` 支持 `news`、`article`、`github`、`insight`、`opportunity` 类型，其中 `news` 仅提取有明确链接的新闻/资讯热点。
 
 ## 使用场景
 
@@ -49,18 +50,9 @@ interface MemberScore {
   wxid: string;
   nickname: string;
   messageCount: number;
-  qualityScore: number;  // 0-100，成员发言质量分
+  score: number;  // 0-100，成员发言质量分
   summary: string;
   status: "normal" | "zero_activity" | "error";
-  stats: {
-    resource: number;
-    technical: number;
-    qa: number;
-    discussion: number;
-    insight: number;
-    opportunity: number;
-    reply: number;
-  };
   highlights: Highlight[];
 }
 ```
@@ -79,22 +71,12 @@ interface MemberScore {
 
 ### 质量分
 
-- 模型输出 `quality_score`（0-100）
-- 系统写入 `qualityScore`
+- 模型输出 `score`（0-100）
+- 系统写入 `score`
 
 ### 有效消息过滤
 
 - 过滤掉以 `#接龙` 开头的消息
-
-### 统计维度（stats）
-
-- `resource` 资源分享
-- `technical` 技术探讨
-- `qa` 问答/求助
-- `discussion` 一般讨论
-- `insight` 深度见解
-- `opportunity` 合作机会
-- `reply` 回复他人
 
 ## 处理步骤
 

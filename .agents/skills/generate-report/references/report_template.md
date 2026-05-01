@@ -20,6 +20,14 @@
 {%- endfor %}
 
 # 本期看点
+{% if news_items %}
+## 🔥 新闻热点
+{%- for item in news_items %}
+{%- if item.url %}
+- [{{ item.title }}]({{ item.url }}) @{{ item.author | replace("|", "\\|") }}
+{%- endif %}
+{%- endfor %}
+{% endif %}
 {% if articles %}
 ## 🤩 精选分享
 {%- for item in articles %}

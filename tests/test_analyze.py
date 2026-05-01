@@ -85,8 +85,13 @@ def test_build_prompt_formats_messages_with_timestamp_sorted_and_truncated():
     assert "1. " not in message_section
     assert "需要结合消息发送时间理解上下文" in prompt
     assert "避免因为单次高质量发言或短时高频发言而高估整体质量" in prompt
-    assert "quality_score 主要衡量内容质量、信息密度和有效性" in prompt
+    assert "score 主要衡量内容质量、信息密度和有效性" in prompt
+    assert "quality_score" not in prompt
+    assert "stats" not in prompt
     assert "highlights 总数不超过 10 条" in prompt
+    assert "news|article|github|insight|opportunity" in prompt
+    assert "news 类型必须有明确 URL" in prompt
+    assert "非新闻型公众号/博客/技术文章/教程/资源文章" in prompt
     assert "必须优先填写成员消息中的原文片段" in prompt
 
 
@@ -115,6 +120,72 @@ def test_sanitize_highlight_output_removes_empty_url():
         {"type": "insight", "content": "一个观点"},
         {"type": "article", "content": "一篇文章", "url": "https://example.com"},
     ]
+
+
+def test_analyze_member_repairs_article_url_from_member_messages(monkeypatch):
+    module = load_analyze_module()
+
+    async def fake_completion(**kwargs):
+        return FakeResponse(
+            '{"summary":"总结","score":77,"highlights":[{"type":"article","content":"AGI Hunt的文字分享","url":"https://mp.weixin.qq.com/s?scene=1&__biz=MzA4NzgzMjA4MQ==&mid=2453482212&idx=1&sn=48762a1e014431e3c22c38408e6b29f3&sharer_shareinfo=broken..."}]}'
+        )
+
+    monkeypatch.setattr(module.litellm, "acompletion", fake_completion, raising=False)
+
+    async def run():
+        return await module.analyze_member(
+            asyncio.Semaphore(1),
+            "wx1",
+            "Alice",
+            [
+                {
+                    "content": "[AGI Hunt的文字分享](https://mp.weixin.qq.com/s?scene=1&__biz=MzA4NzgzMjA4MQ==&mid=2453482212&idx=1&sn=48762a1e014431e3c22c38408e6b29f3&sharer_shareinfo_first=dc2fbfdc23aa15a4a1812fc09723f48b&sharer_shareinfo=dc2fbfdc23aa15a4a1812fc09723f48b#wechat_redirect)",
+                    "timestamp": "2026-04-01T00:00:00Z",
+                }
+            ],
+            {"count": 0, "lock": asyncio.Lock()},
+        )
+
+    result = asyncio.run(run())
+    assert result["highlights"] == [
+        {
+            "type": "article",
+            "content": "AGI Hunt的文字分享",
+            "url": "https://mp.weixin.qq.com/s?__biz=MzA4NzgzMjA4MQ%3D%3D&mid=2453482212&idx=1&sn=48762a1e014431e3c22c38408e6b29f3",
+        }
+    ]
+
+
+def test_analyze_member_repairs_article_url_uses_last_matching_message(monkeypatch):
+    module = load_analyze_module()
+
+    async def fake_completion(**kwargs):
+        return FakeResponse(
+            '{"summary":"总结","score":77,"highlights":[{"type":"article","content":"重复标题","url":"https://mp.weixin.qq.com/s/short"}]}'
+        )
+
+    monkeypatch.setattr(module.litellm, "acompletion", fake_completion, raising=False)
+
+    async def run():
+        return await module.analyze_member(
+            asyncio.Semaphore(1),
+            "wx1",
+            "Alice",
+            [
+                {
+                    "content": "[重复标题](https://mp.weixin.qq.com/s?__biz=first==&mid=1&idx=1&sn=first&scene=1)",
+                    "timestamp": "2026-04-01T00:00:00Z",
+                },
+                {
+                    "content": "[重复标题](https://mp.weixin.qq.com/s?__biz=last==&mid=2&idx=1&sn=last&scene=1)",
+                    "timestamp": "2026-04-01T00:01:00Z",
+                },
+            ],
+            {"count": 0, "lock": asyncio.Lock()},
+        )
+
+    result = asyncio.run(run())
+    assert result["highlights"][0]["url"] == "https://mp.weixin.qq.com/s?__biz=last%3D%3D&mid=2&idx=1&sn=last"
 
 
 def test_build_output_paths_derives_all_runtime_paths():
@@ -154,7 +225,7 @@ def test_analyze_member_parses_fenced_json(monkeypatch):
     async def fake_completion(**kwargs):
         return FakeResponse(
             """```json
-{"summary":"总结","quality_score":88,"stats":{"resource":1,"technical":2,"qa":0,"discussion":0,"insight":1,"opportunity":0,"reply":0},"highlights":[{"type":"insight","content":"原文观点","url":""}]}
+{"summary":"总结","score":88,"highlights":[{"type":"insight","content":"原文观点","url":""}]}
 ```"""
         )
 
@@ -171,7 +242,9 @@ def test_analyze_member_parses_fenced_json(monkeypatch):
 
     result = asyncio.run(run())
     assert result["status"] == "normal"
-    assert result["qualityScore"] == 88.0
+    assert result["score"] == 88.0
+    assert "qualityScore" not in result
+    assert "stats" not in result
     assert result["highlights"] == [{"type": "insight", "content": "原文观点"}]
 
 
@@ -221,7 +294,7 @@ def test_main_generates_scores_and_analyze_json(monkeypatch, tmp_path):
 
     async def fake_completion(**kwargs):
         return FakeResponse(
-            '{"summary":"总结","quality_score":77,"stats":{"resource":1,"technical":0,"qa":0,"discussion":0,"insight":0,"opportunity":0,"reply":0},"highlights":[{"type":"article","content":"文章标题","url":"https://example.com"}]}'
+            '{"summary":"总结","score":77,"highlights":[{"type":"article","content":"文章标题","url":"https://example.com"}]}'
         )
 
     monkeypatch.setattr(module.litellm, "acompletion", fake_completion, raising=False)
@@ -234,6 +307,9 @@ def test_main_generates_scores_and_analyze_json(monkeypatch, tmp_path):
     score = json.loads((out / "scores" / "wx1.json").read_text(encoding="utf-8"))
     analysis = json.loads((out / "analyze.json").read_text(encoding="utf-8"))
     assert score["status"] == "normal"
-    assert score["qualityScore"] == 77.0
+    assert score["score"] == 77.0
+    assert "qualityScore" not in score
+    assert "stats" not in score
     assert analysis["data"]["memberScores"][0]["nickname"] == "Alice"
+    assert analysis["data"]["memberScores"][0]["score"] == 77.0
     assert analysis["data"]["highlights"][0]["author"] == "Alice"

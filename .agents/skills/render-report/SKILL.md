@@ -16,9 +16,11 @@ description: 将精修后的 Markdown 报告（output/report_refined.md）渲染
    - 必须存在 `references/template_v1.html`
    - 必须存在 `output/report_refined.md`
 2. 解析精修报告：
+   - 先根据 `# 本期看点` 中实际 `- ` 条目数重算 `**精彩内容数**`
+   - 若输入 Markdown 中的 `**精彩内容数**` 不一致，先回写修正到 `output/report_refined.md`
    - 标题、期号、统计周期、总成员、活跃成员、精彩内容数
    - 本期排行（排名/成员/综合分）
-   - 本期看点三个小节：精选分享、开源项目、原创心得
+   - 本期看点四个小节：新闻热点、精选分享、开源项目、原创心得
 3. 渲染模板：
    - 用脚本处理 `{{变量}}` 与 `{{#列表}}...{{/列表}}`
 4. 输出 HTML：
@@ -50,5 +52,5 @@ python3 .agents/skills/render-report/scripts/render_report.py
 ## 约束
 
 - 不修改模板文件内容。
-- 不修改 `report_refined.md` 内容。
-- 仅负责“解析 + 渲染 + 输出 HTML”。
+- 允许且仅允许为同步实际看点条目数而修正 `report_refined.md` 中的 `**精彩内容数**`。
+- 仅负责“计数修正 + 解析 + 渲染 + 输出 HTML”。
