@@ -5,7 +5,6 @@ import argparse
 import re
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
-from bisect import bisect_right
 from urllib.parse import urlparse
 from dotenv import load_dotenv
 
@@ -23,9 +22,24 @@ from highlight_url_repair import (
 
 load_dotenv()
 
-ACTIVITY_SCORE_COUNT_WEIGHT = 0.5
-ACTIVITY_SCORE_QUALITY_WEIGHT = 0.5
+ACTIVITY_SCORE_COUNT_WEIGHT = 0.3
+ACTIVITY_SCORE_QUALITY_WEIGHT = 0.7
+ACTIVITY_SCORE_COUNT_MIN_ACTIVE = 60.0
 BEIJING_TZ = timezone(timedelta(hours=8))
+
+
+def compute_p75_message_count(member_scores):
+    """计算活跃成员（发言数 > 0）的发言数量 P75（第 75 百分位）。"""
+    counts = [m.get("messageCount", 0) for m in member_scores if m.get("messageCount", 0) > 0]
+    if not counts:
+        return 1.0
+    counts.sort()
+    n = len(counts)
+    pos = 0.75 * (n - 1)
+    low = int(pos)
+    high = min(low + 1, n - 1)
+    frac = pos - low
+    return counts[low] + frac * (counts[high] - counts[low])
 
 
 def load_json(path: Path):
@@ -99,65 +113,59 @@ def is_invalid_article_title(title: str) -> bool:
     return False
 
 
-def normalize_min_max(value, min_value, max_value):
-    if max_value <= min_value:
-        return 0.5
-    return (value - min_value) / (max_value - min_value)
-
-
-def normalize_percentile(value, sorted_values):
-    total = len(sorted_values)
-    if total <= 1:
-        return 0.5
-    if sorted_values[0] == sorted_values[-1]:
-        return 0.5
-    index = bisect_right(sorted_values, value) - 1
-    index = max(index, 0)
-    return index / (total - 1)
-
-
 def compute_activity_score_100(
     msg_count,
     score,
-    sorted_msg_counts,
-    min_score,
-    max_score,
+    ref_msg_count,
     weight_count=ACTIVITY_SCORE_COUNT_WEIGHT,
     weight_quality=ACTIVITY_SCORE_QUALITY_WEIGHT,
 ):
-    norm_msg_count = normalize_percentile(msg_count, sorted_msg_counts)
-    norm_member_score = normalize_min_max(score, min_score, max_score)
+    """综合分 = 加权(发言数量绝对分, 质量分绝对值)
+    发言数量绝对分以活跃成员 P75 为基准（P75 = 100 分），封顶 100。
+    """
+    if ref_msg_count <= 0:
+        ref_msg_count = 1.0
+    msg_score = min(100.0, msg_count / ref_msg_count * 100.0)
+    if msg_count > 0:
+        msg_score = max(ACTIVITY_SCORE_COUNT_MIN_ACTIVE, msg_score)
     weight_sum = weight_count + weight_quality
     if weight_sum <= 0:
         return 0.0
-    return 100 * ((weight_count * norm_msg_count + weight_quality * norm_member_score) / weight_sum)
+    return (weight_count * msg_score + weight_quality * score) / weight_sum
 
 
-def compute_score_members(member_scores):
+def enrich_member_scores(member_scores, ref_msg_count):
+    enriched = []
+    for m in member_scores:
+        activity_score = compute_activity_score_100(
+            m.get("messageCount", 0),
+            read_member_score(m),
+            ref_msg_count,
+            ACTIVITY_SCORE_COUNT_WEIGHT,
+            ACTIVITY_SCORE_QUALITY_WEIGHT,
+        )
+        enriched.append(
+            {
+                "member": m,
+                "activity_score": activity_score,
+            }
+        )
+    return enriched
+
+
+def compute_score_members(enriched_member_scores):
     severity_label = {
         "high": "高",
         "medium": "中",
         "low": "低",
     }
-    msg_counts = [m.get("messageCount", 0) for m in member_scores]
-    sorted_msg_counts = sorted(msg_counts)
-    scores = [read_member_score(m) for m in member_scores]
-    min_score = min(scores, default=0.0)
-    max_score = max(scores, default=0.0)
 
     score_members = []
-    for m in member_scores:
+    for item in enriched_member_scores:
+        m = item["member"]
         msg_count = m.get("messageCount", 0)
         score = read_member_score(m)
-        activity_score = compute_activity_score_100(
-            msg_count,
-            score,
-            sorted_msg_counts,
-            min_score,
-            max_score,
-            ACTIVITY_SCORE_COUNT_WEIGHT,
-            ACTIVITY_SCORE_QUALITY_WEIGHT,
-        )
+        activity_score = item["activity_score"]
 
         status = None
         severity = None
@@ -166,7 +174,7 @@ def compute_score_members(member_scores):
             status = "zero_activity"
             severity = "high"
             reason = "无消息"
-        elif 40 < activity_score < 60:
+        elif 40 < activity_score <= 60:
             status = "score_middle"
             severity = "medium"
             reason = f"综合分{activity_score:.1f}"
@@ -211,24 +219,14 @@ def build_score_groups(score_members):
         members = [m for m in score_members if m.get("status") == meta["status"]]
         if not members:
             continue
-        if meta["status"] == "qualified":
-            members = sorted(
-                members,
-                key=lambda m: (
-                    m.get("activity_score", 0.0),
-                    m.get("msg_count", 0),
-                    m.get("name", ""),
-                ),
-            )
-        else:
-            members = sorted(
-                members,
-                key=lambda m: (
-                    m.get("activity_score", 0.0),
-                    m.get("msg_count", 0),
-                    m.get("name", ""),
-                ),
-            )
+        members = sorted(
+            members,
+            key=lambda m: (
+                m.get("activity_score", 0.0),
+                m.get("msg_count", 0),
+                m.get("name", ""),
+            ),
+        )
         groups.append(
             {
                 "status": meta["status"],
@@ -248,33 +246,24 @@ def to_report_context(processed, analysis, config):
 
     members_total = len(member_scores)
     active_members = len([m for m in member_scores if m.get("messageCount", 0) > 0])
-
-    msg_counts = [m.get("messageCount", 0) for m in member_scores]
-    sorted_msg_counts = sorted(msg_counts)
-    scores = [read_member_score(m) for m in member_scores]
-    min_score = min(scores, default=0.0)
-    max_score = max(scores, default=0.0)
+    p75_msg_count = compute_p75_message_count(member_scores)
+    enriched_member_scores = enrich_member_scores(
+        member_scores,
+        p75_msg_count,
+    )
 
     enriched_members = []
-    for m in member_scores:
+    for item in enriched_member_scores:
+        m = item["member"]
         msg_count = m.get("messageCount", 0)
         score = read_member_score(m)
-        activity_score = compute_activity_score_100(
-            msg_count,
-            score,
-            sorted_msg_counts,
-            min_score,
-            max_score,
-            ACTIVITY_SCORE_COUNT_WEIGHT,
-            ACTIVITY_SCORE_QUALITY_WEIGHT,
-        )
         enriched_members.append(
             {
                 "name": ensure_table_safe(m.get("nickname") or m.get("wxid") or ""),
                 "sort_name": safe_text(m.get("nickname") or m.get("wxid") or "").lower(),
                 "msg_count": msg_count,
                 "score": score,
-                "activity_score": activity_score,
+                "activity_score": item["activity_score"],
             }
         )
 
@@ -338,7 +327,7 @@ def to_report_context(processed, analysis, config):
                 {"summary": safe_text(item.get("content") or ""), "author": author}
             )
 
-    score_members = compute_score_members(member_scores)
+    score_members = compute_score_members(enriched_member_scores)
     score_groups = build_score_groups(score_members)
     score_flagged_count = len(
         [m for m in score_members if m.get("status") != "qualified"]
@@ -361,7 +350,6 @@ def to_report_context(processed, analysis, config):
         or ""
     )
 
-    # 与模板“本期看点”保持一致：只统计会被展示的四类条目
     displayed_highlights_count = (
         len(news_items) + len(articles) + len(github_items) + len(insights)
     )
@@ -374,6 +362,8 @@ def to_report_context(processed, analysis, config):
         "report_number": config.get("report_number", 1),
         "activity_score_count_weight": ACTIVITY_SCORE_COUNT_WEIGHT,
         "activity_score_quality_weight": ACTIVITY_SCORE_QUALITY_WEIGHT,
+        "activity_score_count_min_active": ACTIVITY_SCORE_COUNT_MIN_ACTIVE,
+        "p75_msg_count": round(p75_msg_count, 1),
         "total_members": members_total,
         "active_members": active_members,
         "score_flagged_count": score_flagged_count,
