@@ -204,3 +204,30 @@ def test_main_raises_when_analysis_missing(tmp_path, monkeypatch):
 
     with pytest.raises(SystemExit, match="missing analysis file"):
         module.main()
+
+
+def test_score_groups_use_50_point_low_score_boundary():
+    module = load_generate_report_module()
+    enriched = [
+        {
+            "member": {"nickname": "at-50", "messageCount": 1, "score": 50.0},
+            "activity_score": 50.0,
+        },
+        {
+            "member": {"nickname": "at-60", "messageCount": 1, "score": 60.0},
+            "activity_score": 60.0,
+        },
+        {
+            "member": {"nickname": "over-60", "messageCount": 1, "score": 60.1},
+            "activity_score": 60.1,
+        },
+    ]
+    members = module.compute_score_members(enriched)
+
+    groups = module.build_score_groups(members)
+
+    assert [(group["title"], group["count"]) for group in groups] == [
+        ("综合分 <=50", 1),
+        ("综合分 50~60", 1),
+        ("综合分 >60", 1),
+    ]

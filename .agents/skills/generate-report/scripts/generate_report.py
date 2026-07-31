@@ -174,11 +174,11 @@ def compute_score_members(enriched_member_scores):
             status = "zero_activity"
             severity = "high"
             reason = "无消息"
-        elif 40 < activity_score <= 60:
+        elif 50 < activity_score <= 60:
             status = "score_middle"
             severity = "medium"
             reason = f"综合分{activity_score:.1f}"
-        elif activity_score <= 40:
+        elif activity_score <= 50:
             status = "low_frequency"
             severity = "low"
             reason = f"综合分{activity_score:.1f}"
@@ -210,8 +210,8 @@ def compute_score_members(enriched_member_scores):
 def build_score_groups(score_members):
     group_meta = [
         {"status": "zero_activity", "title": "零发言成员", "severity_label": "高"},
-        {"status": "low_frequency", "title": "综合分 <=40", "severity_label": "低"},
-        {"status": "score_middle", "title": "综合分 40~60", "severity_label": "中"},
+        {"status": "low_frequency", "title": "综合分 <=50", "severity_label": "低"},
+        {"status": "score_middle", "title": "综合分 50~60", "severity_label": "中"},
         {"status": "qualified", "title": "综合分 >60", "severity_label": "正常"},
     ]
     groups = []
