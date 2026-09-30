@@ -22,7 +22,7 @@ description: 基于分析结果生成 Markdown 报告（`report.md` 与 `scores.
    - `references/scores_template.md`
 2. 组装模板上下文：
    - 周期、生成时间、期数；周期始终从 `output/imported.json` 的消息时间按 UTC+8 推断
-   - 汇总字段：`total_members`、`active_members`、`score_flagged_count`、`highlights_count`
+   - 汇总字段：`total_members`、`score_flagged_count`、`highlights_count`
    - `top_members`：按综合分计算后的前 10
    - `highlights` 按类型分组
    - `score_members` 与 `score_groups`

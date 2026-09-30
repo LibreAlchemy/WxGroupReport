@@ -27,7 +27,6 @@ def sample_markdown():
 **期号**：第 3 期
 **统计周期**：2026-03-01 ~ 2026-03-28
 **总成员数**：89
-**活跃成员数**：60
 **精彩内容数**：5
 
 # 本期排行
@@ -56,7 +55,6 @@ def legacy_markdown():
 **期号**：第 3 期
 **统计周期**：2026-03-01 ~ 2026-03-28
 **总成员数**：89
-**活跃成员数**：60
 **精彩内容数**：4
 
 # 本期看点
@@ -79,7 +77,6 @@ def test_parse_report_extracts_sections():
     assert data["title_main"] == "麦田精选"
     assert data["period"] == "2026-03-01 ~ 2026-03-28"
     assert data["total_members"] == "89"
-    assert data["active_members"] == "60"
     assert data["highlights_count"] == "5"
     assert data["rankings"][0]["name"] == "Alice"
     assert data["rankings"][0]["bar_width"]
@@ -132,7 +129,7 @@ def test_render_html_replaces_sections():
     module = load_render_report_module()
     html = module.render_html(
         "<h1>{{title_main}}</h1>{{#articles}}<p>{{title}}-{{author}}</p>{{/articles}}",
-        {"title_main": "麦田精选", "issue": "1", "period": "-", "total_members": "1", "active_members": "1", "highlights_count": "1", "rankings": [], "news_items": [], "articles": [{"title": "文章", "author": "Alice"}], "shares": [], "github_projects": [], "insights": []},
+        {"title_main": "麦田精选", "issue": "1", "period": "-", "total_members": "1", "highlights_count": "1", "rankings": [], "news_items": [], "articles": [{"title": "文章", "author": "Alice"}], "shares": [], "github_projects": [], "insights": []},
     )
     assert "<h1>麦田精选</h1>" in html
     assert "<p>文章-Alice</p>" in html

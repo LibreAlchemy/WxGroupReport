@@ -80,8 +80,6 @@ def parse_report(markdown_text: str) -> dict:
     m_total = re.search(r"^\*\*总成员数\*\*：\s*(\d+)", markdown_text, re.M)
     total_members = m_total.group(1) if m_total else "0"
 
-    m_active = re.search(r"^\*\*活跃成员数\*\*：\s*(\d+)", markdown_text, re.M)
-    active_members = m_active.group(1) if m_active else "0"
 
     section_idx = {}
     for i, line in enumerate(lines):
@@ -206,7 +204,6 @@ def parse_report(markdown_text: str) -> dict:
         "title_main": title_main,
         "period": period,
         "total_members": total_members,
-        "active_members": active_members,
         "highlights_count": str(highlights_count),
         "rankings": rankings[:10],
         "news_items": items["news_items"],
@@ -235,7 +232,7 @@ def render_sections(template: str, key: str, arr: list[dict]) -> str:
 
 def render_html(template_text: str, data: dict) -> str:
     html = template_text
-    for k in ["issue", "title_main", "period", "total_members", "active_members", "highlights_count"]:
+    for k in ["issue", "title_main", "period", "total_members", "highlights_count"]:
         html = html.replace("{{" + k + "}}", str(data[k]))
 
     html = render_sections(html, "rankings", data["rankings"])

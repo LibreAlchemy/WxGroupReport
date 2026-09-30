@@ -80,7 +80,6 @@ def test_to_report_context_filters_and_computes_sections():
     assert context["period_end"] == "2026-03-04"
     assert context["report_number"] == 3
     assert context["total_members"] == 2
-    assert context["active_members"] == 1
     assert context["score_flagged_count"] == 1
     assert context["highlights_count"] == 4
     assert context["top_members"][0]["name"] == "Alice"

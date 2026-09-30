@@ -245,7 +245,6 @@ def to_report_context(processed, analysis, config):
     highlights = data.get("highlights", [])
 
     members_total = len(member_scores)
-    active_members = len([m for m in member_scores if m.get("messageCount", 0) > 0])
     p75_msg_count = compute_p75_message_count(member_scores)
     enriched_member_scores = enrich_member_scores(
         member_scores,
@@ -365,7 +364,6 @@ def to_report_context(processed, analysis, config):
         "activity_score_count_min_active": ACTIVITY_SCORE_COUNT_MIN_ACTIVE,
         "p75_msg_count": round(p75_msg_count, 1),
         "total_members": members_total,
-        "active_members": active_members,
         "score_flagged_count": score_flagged_count,
         "highlights_count": displayed_highlights_count,
         "news_items": news_items,

@@ -6,7 +6,6 @@
 # 数据统计
 
 **总成员数**：{{ total_members }}
-**活跃成员数**：{{ active_members }}
 **精彩内容数**：{{ highlights_count }}
 
 # 本期排行
