@@ -107,3 +107,5 @@ interface MemberScore {
 
 - `AI_PROVIDER` / `AI_MODEL` / `AI_API_KEY` / `AI_BASE_URL`
 - `MAX_ANALYZE_WORKERS` (default `10`)
+- `REASONING_EFFORT`：思考等级，可选 `minimal|low|medium|high|xhigh`，留空或注释掉表示关闭
+- `AI_TEMPERATURE`：采样温度，范围 `0.0`-`2.0`，留空或非法值回退默认 `0.3`

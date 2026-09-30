@@ -313,3 +313,90 @@ def test_main_generates_scores_and_analyze_json(monkeypatch, tmp_path):
     assert analysis["data"]["memberScores"][0]["nickname"] == "Alice"
     assert analysis["data"]["memberScores"][0]["score"] == 77.0
     assert analysis["data"]["highlights"][0]["author"] == "Alice"
+
+
+def test_completion_kwargs_always_include_fixed_temperature(monkeypatch):
+    module = load_analyze_module()
+    monkeypatch.delenv("REASONING_EFFORT", raising=False)
+
+    monkeypatch.setattr(module, "REASONING_EFFORT", "")
+    assert module.build_completion_kwargs() == {"temperature": 0.3}
+
+
+def test_completion_kwargs_include_reasoning_effort_when_set(monkeypatch):
+    module = load_analyze_module()
+
+    monkeypatch.setattr(module, "REASONING_EFFORT", "high")
+    assert module.build_completion_kwargs() == {"temperature": 0.3, "reasoning_effort": "high"}
+
+
+def test_resolve_reasoning_effort_normalizes_and_warns(monkeypatch, capsys):
+    module = load_analyze_module()
+
+    monkeypatch.setenv("REASONING_EFFORT", "  HIGH ")
+    assert module.resolve_reasoning_effort() == "high"
+    assert "非常见" not in capsys.readouterr().err
+
+    monkeypatch.setenv("REASONING_EFFORT", "ultra")
+    assert module.resolve_reasoning_effort() == "ultra"
+    assert "非常见 REASONING_EFFORT='ultra'" in capsys.readouterr().err
+
+    monkeypatch.setenv("REASONING_EFFORT", "   ")
+    assert module.resolve_reasoning_effort() == ""
+
+
+def test_analyze_member_forwards_inference_params(monkeypatch):
+    module = load_analyze_module()
+    captured = {}
+
+    async def fake_completion(**kwargs):
+        captured.update(kwargs)
+        return FakeResponse('{"summary":"总结","score":70,"highlights":[]}')
+
+    monkeypatch.setattr(module.litellm, "acompletion", fake_completion, raising=False)
+    monkeypatch.setattr(module, "REASONING_EFFORT", "medium")
+
+    async def run():
+        return await module.analyze_member(
+            asyncio.Semaphore(1),
+            "wx1",
+            "Alice",
+            [{"content": "有效消息", "timestamp": "2026-03-01T00:00:00Z"}],
+            {"count": 0, "lock": asyncio.Lock()},
+        )
+
+    result = asyncio.run(run())
+
+    assert result["status"] == "normal"
+    assert captured["temperature"] == 0.3
+    assert captured["reasoning_effort"] == "medium"
+
+
+def test_resolve_temperature_uses_env_default_and_fallbacks(monkeypatch, capsys):
+    module = load_analyze_module()
+
+    monkeypatch.setenv("AI_TEMPERATURE", "0.8")
+    assert module.resolve_temperature() == 0.8
+
+    monkeypatch.setenv("AI_TEMPERATURE", "0")
+    assert module.resolve_temperature() == 0.0
+    assert "无效" not in capsys.readouterr().err
+
+    monkeypatch.delenv("AI_TEMPERATURE", raising=False)
+    assert module.resolve_temperature() == module.DEFAULT_TEMPERATURE
+
+    monkeypatch.setenv("AI_TEMPERATURE", "abc")
+    assert module.resolve_temperature() == module.DEFAULT_TEMPERATURE
+    assert "无效 AI_TEMPERATURE='abc'" in capsys.readouterr().err
+
+    monkeypatch.setenv("AI_TEMPERATURE", "5")
+    assert module.resolve_temperature() == module.DEFAULT_TEMPERATURE
+    assert "超出 0.0-2.0 范围" in capsys.readouterr().err
+
+
+def test_completion_kwargs_use_resolved_temperature(monkeypatch):
+    module = load_analyze_module()
+
+    monkeypatch.setattr(module, "AI_TEMPERATURE", 1.0)
+    monkeypatch.setattr(module, "REASONING_EFFORT", "")
+    assert module.build_completion_kwargs() == {"temperature": 1.0}

@@ -71,6 +71,8 @@ cp .env.example .env
 |------|------|--------|
 | `AI_BASE_URL` | OpenAI 兼容网关地址（按需） | - |
 | `MAX_ANALYZE_WORKERS` | 分析并发数 | `10` |
+| `AI_TEMPERATURE` | 采样温度，有效范围 `0.0`-`2.0`；留空或非法值回退默认 | `0.3` |
+| `REASONING_EFFORT` | 思考等级，取值 `minimal`/`low`/`medium`/`high`/`xhigh`；留空或注释掉表示关闭，实际以 provider 支持为准 | 关闭 |
 
 ### 4. 准备输入数据
 

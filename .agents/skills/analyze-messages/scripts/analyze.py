@@ -52,6 +52,60 @@ else:
         provider = "gemini"
     LITELLM_MODEL = f"{provider}/{AI_MODEL_NAME}"
 
+# AI 推理参数
+# 采样温度：默认 0.3，让评分在重跑时尽量稳定
+DEFAULT_TEMPERATURE = 0.3
+TEMPERATURE_RANGE = (0.0, 2.0)
+# 思考等级：留空表示关闭；常见取值 minimal|low|medium|high|xhigh（实际以 provider 支持为准）
+KNOWN_REASONING_EFFORTS = ("minimal", "low", "medium", "high", "xhigh")
+
+
+def resolve_temperature() -> float:
+    raw = os.getenv("AI_TEMPERATURE", "").strip()
+    if not raw:
+        return DEFAULT_TEMPERATURE
+    try:
+        value = float(raw)
+    except ValueError:
+        print(
+            f"⚠️ 无效 AI_TEMPERATURE={raw!r}，将使用默认值 {DEFAULT_TEMPERATURE}",
+            file=sys.stderr,
+        )
+        return DEFAULT_TEMPERATURE
+    low, high = TEMPERATURE_RANGE
+    if not low <= value <= high:
+        print(
+            f"⚠️ AI_TEMPERATURE={value} 超出 {low}-{high} 范围，将使用默认值 {DEFAULT_TEMPERATURE}",
+            file=sys.stderr,
+        )
+        return DEFAULT_TEMPERATURE
+    return value
+
+
+def resolve_reasoning_effort() -> str:
+    raw = os.getenv("REASONING_EFFORT", "").strip().lower()
+    if not raw:
+        return ""
+    if raw not in KNOWN_REASONING_EFFORTS:
+        print(
+            f"⚠️ 非常见 REASONING_EFFORT={raw!r}，将原样下发给 provider",
+            file=sys.stderr,
+        )
+    return raw
+
+
+REASONING_EFFORT = resolve_reasoning_effort()
+AI_TEMPERATURE = resolve_temperature()
+
+
+def build_completion_kwargs() -> dict:
+    """返回除 messages 外的推理参数；未配置思考等级时不下发 reasoning_effort。"""
+    kwargs = {"temperature": AI_TEMPERATURE}
+    if REASONING_EFFORT:
+        kwargs["reasoning_effort"] = REASONING_EFFORT
+    return kwargs
+
+
 # 默认并发数
 DEFAULT_MAX_WORKERS = 10
 
@@ -258,6 +312,7 @@ async def analyze_member(sem, wxid: str, nickname: str, messages: list, inflight
                     messages=[{"role": "user", "content": prompt}],
                     api_key=AI_API_KEY,
                     base_url=AI_BASE_URL,
+                    **build_completion_kwargs(),
                 )
 
                 content = extract_json_payload(response.choices[0].message.content)
@@ -329,6 +384,10 @@ async def main():
     Path(paths["scores_dir"]).mkdir(parents=True, exist_ok=True)
 
     print(f"🤖 使用模型: {LITELLM_MODEL}")
+    print(
+        f"⚙️ 推理配置: temperature={AI_TEMPERATURE}, "
+        f"reasoning_effort={REASONING_EFFORT or 'off'}"
+    )
     print(f"⚙️ 并发配置: MAX_ANALYZE_WORKERS={MAX_WORKERS}")
 
     loop_round = 0

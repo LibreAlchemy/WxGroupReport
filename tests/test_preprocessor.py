@@ -22,10 +22,11 @@ def load_preprocessor_module():
 def test_is_valid_message_only_allows_business_message_types():
     preprocessor = load_preprocessor_module()
 
-    for msg_type in [0, 7, 24, 25, 27]:
+    for msg_type in [0, 7, 24, 25]:
         assert preprocessor.is_valid_message(msg_type) is True
 
-    for msg_type in [80, 1, 5, 999]:
+    # 27 = 名片，不参与内容分析；1/5 = 图片/动画表情等水消息
+    for msg_type in [80, 1, 5, 27, 999]:
         assert preprocessor.is_valid_message(msg_type) is False
 
 
