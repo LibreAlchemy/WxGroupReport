@@ -81,4 +81,5 @@ interface ReportOutput {
 - 主模板路径固定为脚本同级 `references/report_template.md`。
 - 成员评分模板路径固定为脚本同级 `references/scores_template.md`。
 - 成员评分报告固定输出到 `output/scores.md`。
+- 综合分直接按 `0.45 × 发言分 + 0.55 × 质量分` 计算；零发言成员仍为 0。
 - 对外回复时不要输出大段 JSON 原文。

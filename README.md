@@ -28,6 +28,7 @@ WxGroupReport/
     ├── members/              # 成员消息文件
     ├── scores/               # 成员打分结果
     ├── imported.json         # 预处理数据
+    ├── dialogue.json         # 带结构化引用的完整对话索引
     ├── analyze.json          # 分析结果
     ├── report.md             # 产出报告
     ├── report_refined.md     # 精修后的报告
@@ -71,30 +72,23 @@ cp .env.example .env
 |------|------|--------|
 | `AI_BASE_URL` | OpenAI 兼容网关地址（按需） | - |
 | `MAX_ANALYZE_WORKERS` | 分析并发数 | `10` |
-| `AI_TEMPERATURE` | 采样温度，有效范围 `0.0`-`2.0`；留空或非法值回退默认 | `0.3` |
-| `REASONING_EFFORT` | 思考等级，取值 `minimal`/`low`/`medium`/`high`/`xhigh`；留空或注释掉表示关闭，实际以 provider 支持为准 | 关闭 |
+| `AI_TEMPERATURE` | 采样温度，有效范围 `0.0`-`2.0`；留空或非法值回退默认 | `0.1` |
+| `REASONING_EFFORT` | 思考等级，取值 `minimal`/`low`/`medium`/`high`/`xhigh`；留空表示关闭 | `high` |
 
 ### 4. 准备输入数据
 
-1. 将微信聊天记录导出为 ChatLab JSON 格式，放到任意位置，如 `data/20260101-20260131.json`
-2. (可选) 白名单配置：
+将微信聊天记录导出为 ChatLab JSON 或新版微信导出格式（`schemaVersion: 1`），放到任意位置，如 `data/20260101-20260131.json`。
 
-在任意位置创建 `whitelist.md`，使用 Markdown 表格列出成员的 **微信 ID (wxid)** 或 **群昵称**：
+新版导出不包含完整成员名单，因此报告中的“总成员数”按实际发言成员统计，不包含从未发言的群成员。
 
-```markdown
-|昵称|wxid|
-|----|----|
-|张三|wxid_123456|
-|李四|wxid_789012|
-```
+分析阶段会读取 `output/dialogue.json`，自动补充局部群聊上下文并按预算分块。质量分由信息密度、原创性、资源价值、互动价值和持续性组成；最终分数会进行同批次温和校准。
 
 ### 5. 开始执行
 
-在任意 TUI Agent 窗口中，提供数据文件和白名单文件（可选）的路径后回车：
+在任意 TUI Agent 窗口中，提供数据文件的路径后回车：
 
 ```
 path/to/data.json
-path/to/whitelist.md
 ```
 
 ## 常见问题

@@ -6,7 +6,7 @@
 
 技能文件夹 `.agents/skills/`，技能列表：
 
-- `import-chat-data`：处理群聊导出 JSON，拆分成员数据并应用 `whitelist.md`
+- `import-chat-data`：处理群聊导出 JSON，拆分成员数据
 - `analyze-messages`：分析成员发言并生成 `output/analyze.json`
 - `generate-report`：生成 `output/report.md` 与 `output/scores.md`
 - `refine-report`：保留全量报告，额外生成 `output/report_refined.md`

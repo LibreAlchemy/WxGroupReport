@@ -16,13 +16,26 @@ import json
 import re
 import os
 import sys
-import uuid
 import argparse
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
 from tqdm import tqdm
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+SHARED_SKILL_DIR = Path(__file__).resolve().parents[2] / "shared"
+if str(SHARED_SKILL_DIR) not in sys.path:
+    sys.path.insert(0, str(SHARED_SKILL_DIR))
+
+from export_adapter import (
+    UnsupportedExportFormatError,
+    detect_export_schema,
+    normalize_export,
+)
+from message_context import parse_inline_quote
 
 try:
     from dotenv import load_dotenv
@@ -42,6 +55,7 @@ class ParsedMessage:
     timestamp: str
     msg_type: int
     content: str
+    quote: Optional[Dict[str, str]] = None
 
 
 @dataclass
@@ -81,10 +95,9 @@ def parse_timestamp(unix_ts: int) -> str:
     return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def generate_message_id(wxid: str, timestamp: int) -> str:
-    """生成唯一消息 ID"""
-    short_uuid = str(uuid.uuid4()).split("-")[0]
-    return f"{wxid}_{timestamp}_{short_uuid}"
+def generate_message_id(wxid: str, timestamp: int, sequence: int) -> str:
+    """在缺少源消息 ID 时生成稳定且唯一的消息 ID。"""
+    return f"{wxid}_{timestamp}_{sequence}"
 
 
 def clean_content(content: Optional[str]) -> str:
@@ -108,7 +121,32 @@ def is_valid_message(msg_type: int) -> bool:
 
 def is_forwarded_chat_record_message(msg: Dict[str, Any]) -> bool:
     """判断是否为转发聊天记录消息"""
-    return int(msg.get("type", -1)) == 7 and "chatRecords" in msg
+    return int(msg.get("type", -1)) == 7 and (
+        "chatRecords" in msg or bool(msg.get("forwardedChatRecord"))
+    )
+
+
+def build_message_id(
+    msg: Dict[str, Any], sender: str, timestamp: int, sequence: int, used_ids: set[str]
+) -> str:
+    source_id = clean_content(msg.get("platformMessageId") or msg.get("id"))
+    candidate = source_id or generate_message_id(sender, timestamp, sequence)
+    if candidate in used_ids:
+        candidate = f"{candidate}_{sequence}"
+    used_ids.add(candidate)
+    return candidate
+
+
+def build_quote_info(msg: Dict[str, Any]) -> Optional[Dict[str, str]]:
+    structured_quote = msg.get("quote")
+    if isinstance(structured_quote, dict):
+        author = clean_content(structured_quote.get("author")) or "未知成员"
+        content = clean_content(structured_quote.get("content"))
+        if content:
+            return {"author": author, "content": content}
+
+    _, inline_quote = parse_inline_quote(clean_content(msg.get("content")))
+    return inline_quote
 
 
 def collect_chat_record_participants(messages: List[Dict]) -> set[str]:
@@ -210,6 +248,17 @@ def filter_and_parse_messages(
     member_mapping: Dict[str, Dict],
     show_progress: bool = True,
 ) -> Tuple[Dict[str, List[ParsedMessage]], int]:
+    messages_by_member, filtered_count, _ = parse_business_messages(
+        messages, member_mapping, show_progress=show_progress
+    )
+    return messages_by_member, filtered_count
+
+
+def parse_business_messages(
+    messages: List[Dict],
+    member_mapping: Dict[str, Dict],
+    show_progress: bool = True,
+) -> Tuple[Dict[str, List[ParsedMessage]], int, List[Dict[str, Any]]]:
     """
     过滤和解析消息
 
@@ -218,12 +267,14 @@ def filter_and_parse_messages(
     """
     result = {}
     filtered_count = 0
+    dialogue = []
+    used_ids: set[str] = set()
 
     iterator = messages
     if show_progress:
         iterator = tqdm(messages, desc="处理消息", file=sys.stderr)
 
-    for msg in iterator:
+    for index, msg in enumerate(iterator):
         msg_type = int(msg.get("type", -1))
 
         if (
@@ -237,18 +288,28 @@ def filter_and_parse_messages(
         if sender_id not in member_mapping:
             continue
 
+        timestamp = int(msg.get("timestamp", 0))
+        content = clean_content(msg.get("content"))
         parsed_msg = ParsedMessage(
-            id=generate_message_id(sender_id, msg.get("timestamp", 0)),
-            timestamp=parse_timestamp(msg.get("timestamp", 0)),
+            id=build_message_id(msg, sender_id, timestamp, index, used_ids),
+            timestamp=parse_timestamp(timestamp),
             msg_type=msg_type,
-            content=clean_content(msg.get("content")),
+            content=content,
+            quote=build_quote_info(msg),
         )
 
         if sender_id not in result:
             result[sender_id] = []
         result[sender_id].append(parsed_msg)
+        dialogue.append(
+            {
+                **dataclasses.asdict(parsed_msg),
+                "sender": sender_id,
+                "nickname": member_mapping[sender_id]["accountName"],
+            }
+        )
 
-    return result, filtered_count
+    return result, filtered_count, dialogue
 
 
 def aggregate_member_data(
@@ -300,7 +361,10 @@ def calculate_statistics(
 
 
 def save_processed_data(
-    data: ProcessedData, output_dir: Path, save_individual: bool = True
+    data: ProcessedData,
+    output_dir: Path,
+    save_individual: bool = True,
+    dialogue: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
     保存处理后的数据
@@ -314,7 +378,13 @@ def save_processed_data(
     with open(main_file, "w", encoding="utf-8") as f:
         json.dump(dataclasses.asdict(data), f, ensure_ascii=False, indent=2)
 
-    result = {"main": main_file, "members": []}
+    result = {"main": main_file, "members": [], "dialogue": None}
+
+    if dialogue is not None:
+        dialogue_file = output_dir / "dialogue.json"
+        with open(dialogue_file, "w", encoding="utf-8") as f:
+            json.dump(dialogue, f, ensure_ascii=False, indent=2)
+        result["dialogue"] = dialogue_file
 
     if save_individual:
         members_dir = output_dir / "members"
@@ -359,9 +429,13 @@ def preprocess_chat_data(
     with open(input_path, "r", encoding="utf-8") as f:
         raw_data = json.load(f)
 
-    meta = raw_data.get("meta", {})
-    members = raw_data.get("members", [])
-    messages = raw_data.get("messages", [])
+    schema = detect_export_schema(raw_data)
+    normalized_data = normalize_export(raw_data, schema)
+    print(f"输入格式: {schema}")
+
+    meta = normalized_data["meta"]
+    members = normalized_data["members"]
+    messages = normalized_data["messages"]
 
     group_info = GroupInfo(
         name=meta.get("name", ""),
@@ -384,7 +458,7 @@ def preprocess_chat_data(
     )
     join_times_by_nickname = extract_join_times(messages) if include_join_time else {}
 
-    messages_by_member, filtered_count = filter_and_parse_messages(
+    messages_by_member, filtered_count, dialogue_messages = parse_business_messages(
         messages, member_mapping, show_progress=True
     )
 
@@ -401,8 +475,21 @@ def preprocess_chat_data(
         group_info=group_info, members=processed_members, statistics=statistics
     )
 
+    dialogue_messages = sorted(dialogue_messages, key=lambda msg: msg["timestamp"])
+    dialogue = {
+        "group_info": dataclasses.asdict(group_info),
+        "period": {
+            "start": dialogue_messages[0]["timestamp"] if dialogue_messages else "",
+            "end": dialogue_messages[-1]["timestamp"] if dialogue_messages else "",
+        },
+        "messages": dialogue_messages,
+    }
+
     output_files = save_processed_data(
-        result, Path(output_dir), save_individual=save_individual
+        result,
+        Path(output_dir),
+        save_individual=save_individual,
+        dialogue=dialogue,
     )
 
     return result, output_files
@@ -422,7 +509,7 @@ def load_config() -> Dict[str, Any]:
     parser.add_argument("-o", "--output", default="output", help="输出目录，默认 output")
     parser.add_argument("--no-extract-join-time", action="store_true", help="不提取入群时间")
     parser.add_argument("--no-save-individual", action="store_true", help="不保存成员单独文件")
-    
+
     args = parser.parse_args()
 
     if load_dotenv:
@@ -464,8 +551,11 @@ def main():
         print(f"有效消息: {result.statistics['validMessages']}")
         print(f"过滤消息: {result.statistics['filteredMessages']}")
         print(f"主文件: {output_files['main']}")
+        if output_files["dialogue"]:
+            print(f"对话索引: {output_files['dialogue']}")
         if output_files["members"]:
-            print(f"成员文件: {len(output_files['members'])} 个 (output/members/)")
+            members_dir = output_files["main"].parent / "members"
+            print(f"成员文件: {len(output_files['members'])} 个 ({members_dir})")
 
         return 0
     except FileNotFoundError as e:
@@ -473,6 +563,9 @@ def main():
         return 1
     except json.JSONDecodeError as e:
         print(f"\n❌ JSON 格式错误: {e}", file=sys.stderr)
+        return 1
+    except UnsupportedExportFormatError as e:
+        print(f"\n❌ 输入格式错误: {e}", file=sys.stderr)
         return 1
     except ValueError as e:
         print(f"\n❌ 参数错误: {e}", file=sys.stderr)

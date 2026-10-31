@@ -83,13 +83,265 @@ def test_to_report_context_filters_and_computes_sections():
     assert context["score_flagged_count"] == 1
     assert context["highlights_count"] == 4
     assert context["top_members"][0]["name"] == "Alice"
-    assert context["news_items"] == [{"title": "产品发布新闻", "url": "https://example.com/news", "author": "Alice"}]
-    assert context["articles"] == [{"title": "一篇文章", "url": "https://example.com", "author": "Alice"}]
-    assert context["github_items"] == [{"repo": "repo", "url": "https://github.com/org/repo", "author": "Alice"}]
-    assert context["insights"] == [{"content": "原话观点", "author": "Alice"}]
-    assert context["opportunities"] == [{"summary": "招聘机会", "author": "Alice"}]
+    assert context["news_items"] == [
+        {
+            "title": "产品发布新闻",
+            "url": "https://example.com/news",
+            "author": "Alice",
+        }
+    ]
+    assert context["articles"] == [
+        {
+            "title": "一篇文章",
+            "url": "https://example.com",
+            "author": "Alice",
+        }
+    ]
+    assert context["github_items"] == [
+        {
+            "repo": "repo",
+            "url": "https://github.com/org/repo",
+            "author": "Alice",
+        }
+    ]
+    assert context["insights"] == [
+        {"content": "原话观点", "author": "Alice"}
+    ]
+    assert context["opportunities"] == [
+        {"summary": "招聘机会", "author": "Alice"}
+    ]
 
 
+def test_canonicalize_analysis_highlights_uses_source_text_and_link_title():
+    module = load_generate_report_module()
+    processed = {
+        "members": {
+            "wx1": {
+                "nickname": "Alice",
+                "messages": [
+                    {
+                        "id": "m1",
+                        "content": "这是成员原始观点，不应被摘要替代。",
+                    },
+                    {
+                        "id": "m2",
+                        "content": "【原始链接标题】 https://example.com/article",
+                    },
+                ],
+            }
+        }
+    }
+    highlights = [
+        {
+            "type": "insight",
+            "content": "指出一个摘要观点",
+            "messageId": "m1",
+            "author": "Alice",
+        },
+        {
+            "type": "article",
+            "content": "分享一篇文章并给出摘要",
+            "messageId": "m2",
+            "author": "Alice",
+        },
+    ]
+
+    canonical = module.canonicalize_analysis_highlights(highlights, processed)
+
+    assert canonical == [
+        {
+            "type": "insight",
+            "content": "这是成员原始观点，不应被摘要替代。",
+            "messageId": "m1",
+            "author": "Alice",
+        },
+        {
+            "type": "article",
+            "content": "原始链接标题",
+            "messageId": "m2",
+            "url": "https://example.com/article",
+            "author": "Alice",
+        },
+    ]
+
+
+def test_canonicalize_github_uses_model_project_description():
+    module = load_generate_report_module()
+    processed = {
+        "members": {
+            "wx1": {
+                "nickname": "Alice",
+                "messages": [
+                    {
+                        "id": "g1",
+                        "content": "org/repo https://github.com/org/repo",
+                    }
+                ],
+            }
+        }
+    }
+    highlights = [
+        {
+            "type": "github",
+            "content": "一个用于编排多智能体工作流的开源框架。",
+            "messageId": "g1",
+            "author": "Alice",
+        }
+    ]
+
+    canonical = module.canonicalize_analysis_highlights(highlights, processed)
+
+    assert canonical == [
+        {
+            "type": "github",
+            "content": "一个用于编排多智能体工作流的开源框架。",
+            "messageId": "g1",
+            "url": "https://github.com/org/repo",
+            "author": "Alice",
+        }
+    ]
+
+
+def test_source_link_inventory_uses_model_type_and_github_description():
+    module = load_generate_report_module()
+    processed = {
+        "members": {
+            "wx1": {
+                "nickname": "Alice",
+                "messages": [
+                    {"id": "g1", "content": "https://github.com/org/repo"},
+                    {
+                        "id": "g2",
+                        "content": "【Repo title】 https://github.com/org/repo/releases/tag/v1",
+                    },
+                    {
+                        "id": "n1",
+                        "content": "【模型正式发布】 https://example.com/news",
+                    },
+                    {
+                        "id": "a1",
+                        "content": "【实战教程正式上线】 https://example.com/tutorial",
+                    },
+                ],
+            }
+        }
+    }
+    canonical = [
+        {
+            "type": "news",
+            "content": "模型正式发布",
+            "url": "https://example.com/news",
+            "messageId": "n1",
+        },
+        {
+            "type": "github",
+            "content": "一个提供发布流程自动化的开源项目。",
+            "url": "https://github.com/org/repo",
+            "messageId": "g2",
+        },
+    ]
+
+    links = module.build_source_link_highlights(processed, canonical)
+
+    assert links == [
+        {
+            "type": "github",
+            "content": "一个提供发布流程自动化的开源项目。",
+            "url": "https://github.com/org/repo",
+            "messageId": "g2",
+            "author": "Alice",
+        },
+        {
+            "type": "news",
+            "content": "模型正式发布",
+            "url": "https://example.com/news",
+            "messageId": "n1",
+            "author": "Alice",
+        },
+        {
+            "type": "article",
+            "content": "实战教程正式上线",
+            "url": "https://example.com/tutorial",
+            "messageId": "a1",
+            "author": "Alice",
+        },
+    ]
+
+
+def test_title_keywords_do_not_promote_unselected_link_to_news():
+    module = load_generate_report_module()
+    processed = {
+        "members": {
+            "wx1": {
+                "nickname": "Alice",
+                "messages": [
+                    {
+                        "id": "n1",
+                        "content": "【模型正式发布】 https://example.com/news",
+                    }
+                ],
+            }
+        }
+    }
+
+    links = module.build_source_link_highlights(processed, [])
+
+    assert links == [
+        {
+            "type": "article",
+            "content": "模型正式发布",
+            "url": "https://example.com/news",
+            "messageId": "n1",
+            "author": "Alice",
+        }
+    ]
+
+
+def test_github_description_map_overrides_repo_name_fallback():
+    module = load_generate_report_module()
+    processed = {
+        "members": {
+            "wx1": {
+                "nickname": "Alice",
+                "messages": [
+                    {
+                        "id": "g1",
+                        "content": "https://github.com/org/repo",
+                    }
+                ],
+            }
+        }
+    }
+
+    links = module.build_source_link_highlights(
+        processed,
+        [],
+        {
+            "https://github.com/org/repo": "一个用于自动化发布流程的开源工具。"
+        },
+    )
+
+    assert links[0]["type"] == "github"
+    assert links[0]["content"] == "一个用于自动化发布流程的开源工具。"
+
+
+def test_scores_context_restores_target_alias_to_member_name():
+    module = load_generate_report_module()
+    processed = sample_processed()
+    analysis = sample_analysis()
+    nickname = analysis["data"]["memberScores"][0]["nickname"]
+    analysis["data"]["memberScores"][0]["summary"] = "T在群内较活跃，持续分享技术内容。"
+
+    context = module.to_report_context(
+        processed,
+        analysis,
+        {"report_number": 1},
+    )
+
+    member = next(
+        item for item in context["score_members"] if item["name"] == nickname
+    )
+    assert member["summary"].startswith(f"{nickname}在群内较活跃")
 def test_sanitize_url_trims_wechat_mp_query_params():
     module = load_generate_report_module()
 
@@ -230,3 +482,15 @@ def test_score_groups_use_50_point_low_score_boundary():
         ("综合分 50~60", 1),
         ("综合分 >60", 1),
     ]
+
+
+def test_composite_score_uses_adjusted_global_weights():
+    module = load_generate_report_module()
+
+    assert module.compute_activity_score_100(1, 5.6, 99) == pytest.approx(
+        30.1, abs=0.1
+    )
+    assert module.compute_activity_score_100(100, 100, 100) == pytest.approx(
+        100.0
+    )
+    assert module.compute_activity_score_100(0, 90, 100) == 0.0

@@ -15,15 +15,17 @@ if str(SHARED_SKILL_DIR) not in sys.path:
     sys.path.insert(0, str(SHARED_SKILL_DIR))
 
 from highlight_url_repair import (
-    build_title_url_index_from_processed,
-    repair_highlights,
+    canonicalize_highlight_from_message,
+    extract_source_links,
+    normalize_github_repo_url,
+    restore_target_name,
     sanitize_url,
 )
 
 load_dotenv()
 
-ACTIVITY_SCORE_COUNT_WEIGHT = 0.3
-ACTIVITY_SCORE_QUALITY_WEIGHT = 0.7
+ACTIVITY_SCORE_COUNT_WEIGHT = 0.45
+ACTIVITY_SCORE_QUALITY_WEIGHT = 0.55
 ACTIVITY_SCORE_COUNT_MIN_ACTIVE = 60.0
 BEIJING_TZ = timezone(timedelta(hours=8))
 
@@ -48,6 +50,8 @@ def load_json(path: Path):
 
 
 def safe_text(value):
+    if value is None:
+        return ""
     return str(value).replace("\r", " ").replace("\n", " ").strip()
 
 
@@ -57,6 +61,164 @@ def ensure_table_safe(value):
 
 def read_member_score(member):
     return float(member.get("score", 0.0))
+
+
+def canonicalize_analysis_highlights(highlights, processed):
+    """Replace model paraphrases with source titles or exact source text."""
+    message_to_owner = {}
+    for wxid, member in (processed.get("members") or {}).items():
+        for message in member.get("messages", []):
+            message_id = safe_text(message.get("id"))
+            if message_id:
+                message_to_owner[message_id] = {
+                    **message,
+                    "wxid": wxid,
+                    "nickname": member.get("nickname") or wxid,
+                }
+
+    canonical = []
+    seen = set()
+    for item in highlights:
+        raw_message_id = item.get("messageId")
+        if not raw_message_id:
+            normalized = dict(item)
+            key = (
+                normalized.get("type"),
+                normalized.get("url")
+                or f"{normalized.get('content')}\0{normalized.get('author')}",
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            canonical.append(normalized)
+            continue
+        message_id = safe_text(raw_message_id)
+        source_message = message_to_owner.get(message_id)
+        if not source_message:
+            continue
+        normalized = canonicalize_highlight_from_message(item, source_message)
+        if not normalized:
+            continue
+        normalized["author"] = safe_text(item.get("author")) or source_message[
+            "nickname"
+        ]
+        key = (
+            normalized["type"],
+            normalized.get("url")
+            or f"{normalized['content']}\0{normalized['author']}",
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        canonical.append(normalized)
+    return canonical
+
+
+def classify_source_link(url, type_hint=""):
+    if normalize_github_repo_url(url):
+        return "github"
+    hint = safe_text(type_hint).lower()
+    if hint in {"news", "article"}:
+        return hint
+    return "article"
+
+
+def build_source_link_highlights(
+    processed, canonical_highlights, github_descriptions=None
+):
+    github_descriptions = github_descriptions or {}
+    hints = {}
+    for item in canonical_highlights:
+        message_id = safe_text(item.get("messageId"))
+        url = normalize_github_repo_url(item.get("url") or "") or sanitize_url(
+            item.get("url") or ""
+        )
+        if (
+            message_id
+            and url
+            and item.get("type") in {"news", "article", "github"}
+        ):
+            hints.setdefault((message_id, url), item)
+
+    inventory = {}
+    for member in (processed.get("members") or {}).values():
+        author = safe_text(member.get("nickname"))
+        for message in member.get("messages", []):
+            message_id = safe_text(message.get("id"))
+            if not message_id:
+                continue
+            for link in extract_source_links(message.get("content") or ""):
+                url = sanitize_url(link.get("url") or "")
+                if not url:
+                    continue
+                repo_url = normalize_github_repo_url(url)
+                if repo_url:
+                    url = repo_url
+                title = safe_text(link.get("title"))
+                if not title and repo_url:
+                    title = repo_url.removeprefix("https://github.com/")
+                if not title:
+                    continue
+                hint = hints.get((message_id, url), {})
+                item_type = classify_source_link(url, hint.get("type", ""))
+                model_description = (
+                    safe_text(github_descriptions.get(url))
+                    or (
+                        safe_text(hint.get("content"))
+                        if item_type == "github"
+                        and hint.get("type") == "github"
+                        else ""
+                    )
+                )
+                content = model_description or title
+                key = (item_type, url)
+                existing = inventory.get(key)
+                if existing:
+                    if model_description and not existing["_model_description"]:
+                        existing["content"] = content
+                        existing["messageId"] = message_id
+                        existing["author"] = author
+                        existing["_model_description"] = True
+                    continue
+                inventory[key] = {
+                    "type": item_type,
+                    "content": content,
+                    "url": url,
+                    "messageId": message_id,
+                    "author": author,
+                    "_model_description": bool(model_description),
+                }
+    return [
+        {key: value for key, value in item.items() if key != "_model_description"}
+        for item in inventory.values()
+    ]
+
+
+def build_report_highlights(highlights, processed, github_descriptions=None):
+    canonical = canonicalize_analysis_highlights(highlights, processed)
+    links = build_source_link_highlights(
+        processed, canonical, github_descriptions
+    )
+    inventory_urls = {
+        normalize_github_repo_url(item.get("url") or "")
+        or sanitize_url(item.get("url") or "")
+        for item in links
+    }
+    insights = [
+        item
+        for item in canonical
+        if item.get("type") in {"insight", "opportunity"}
+        or (item.get("type") == "article" and not item.get("url"))
+        or (
+            item.get("type") in {"news", "article", "github"}
+            and (
+                normalize_github_repo_url(item.get("url") or "")
+                or sanitize_url(item.get("url") or "")
+            )
+            not in inventory_urls
+        )
+    ]
+    return [*links, *insights]
 
 
 def timestamp_to_beijing_date(timestamp):
@@ -120,9 +282,9 @@ def compute_activity_score_100(
     weight_count=ACTIVITY_SCORE_COUNT_WEIGHT,
     weight_quality=ACTIVITY_SCORE_QUALITY_WEIGHT,
 ):
-    """综合分 = 加权(发言数量绝对分, 质量分绝对值)
-    发言数量绝对分以活跃成员 P75 为基准（P75 = 100 分），封顶 100。
-    """
+    """发言分以活跃成员 P75 为基准，达到 P75 或以上记 100 分。"""
+    if msg_count <= 0:
+        return 0.0
     if ref_msg_count <= 0:
         ref_msg_count = 1.0
     msg_score = min(100.0, msg_count / ref_msg_count * 100.0)
@@ -188,10 +350,11 @@ def compute_score_members(enriched_member_scores):
             reason = f"综合分{activity_score:.1f}"
 
         if status:
+            nickname = safe_text(m.get("nickname") or m.get("wxid") or "")
             score_members.append(
                 {
-                    "name": safe_text(m.get("nickname") or m.get("wxid") or ""),
-                    "summary": safe_text(m.get("summary") or ""),
+                    "name": nickname,
+                    "summary": restore_target_name(m.get("summary"), nickname),
                     "msg_count": msg_count,
                     "score": score,
                     "activity_score": round(activity_score, 1),
@@ -256,13 +419,16 @@ def to_report_context(processed, analysis, config):
         m = item["member"]
         msg_count = m.get("messageCount", 0)
         score = read_member_score(m)
+        nickname = safe_text(m.get("nickname") or m.get("wxid") or "")
+        summary = restore_target_name(m.get("summary"), nickname)
         enriched_members.append(
             {
-                "name": ensure_table_safe(m.get("nickname") or m.get("wxid") or ""),
-                "sort_name": safe_text(m.get("nickname") or m.get("wxid") or "").lower(),
+                "name": ensure_table_safe(nickname),
+                "sort_name": nickname.lower(),
                 "msg_count": msg_count,
                 "score": score,
                 "activity_score": item["activity_score"],
+                "summary": summary,
             }
         )
 
@@ -448,9 +614,10 @@ def main():
     processed = load_json(processed_path)
     analysis = load_json(analysis_path)
     analysis_data = analysis.get("data") or {}
-    analysis_data["highlights"] = repair_highlights(
+    analysis_data["highlights"] = build_report_highlights(
         analysis_data.get("highlights") or [],
-        build_title_url_index_from_processed(processed),
+        processed,
+        (analysis_data.get("metadata") or {}).get("githubDescriptions") or {},
     )
     analysis["data"] = analysis_data
 

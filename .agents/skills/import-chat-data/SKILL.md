@@ -1,13 +1,15 @@
 ---
 name: import-chat-data
-description: 处理微信群导出 JSON，拆分为成员文件并应用 `whitelist.md` 匹配（wxid 优先）。用户要求“导入群聊数据”“重建 members 数据”时使用。
+description: 处理微信群导出 JSON，拆分为成员文件。用户要求“导入群聊数据”“重建 members 数据”时使用。
 ---
 
 # 技能：import-chat-data
 
 ## 概述
 
-将微信群导出 JSON 处理为按成员拆分的 JSON 文件，并应用白名单标记。
+将微信群导出 JSON 处理为按成员拆分的 JSON 文件。支持 ChatLab `0.0.2` 旧格式和新版 `schemaVersion: 1` 导出。
+
+预处理会额外生成 `output/dialogue.json`，保存稳定消息 ID、发送者和结构化引用，供分析阶段构建局部上下文。
 
 ## 工作流
 
@@ -23,23 +25,15 @@ python3 ".agents/skills/import-chat-data/scripts/preprocessor.py" -i path/to/inp
 - `--no-extract-join-time`：不提取入群时间（默认开启提取）
 - `--no-save-individual`：不保存成员独立文件（默认开启保存）
 
-### 第二步：应用白名单
-
-```bash
-python3 ".agents/skills/import-chat-data/scripts/apply_whitelist.py" -o output
-```
-
-**参数**：
-- `-o, --output`：输出目录（默认 `output`）
-- `-w, --whitelist`：白名单文件路径（默认 `whitelist.md`）
-
 **说明**：执行后根据控制台输出确认产物文件位置。
 
 ## 错误处理
 
 - 缺少输入文件：报错并退出
-- 缺少白名单文件：跳过白名单步骤
-- JSON 解析失败：跳过该文件并继续
+- JSON 解析失败：报错并退出
+- 不支持的导出结构或 schema：报错并退出，不生成空结果
+
+新版导出没有完整成员名单，`totalMembers` 表示实际发言成员数，不包含从未发言的群成员。
 
 ## 快速参考
 
@@ -52,4 +46,4 @@ python3 ".agents/skills/import-chat-data/scripts/apply_whitelist.py" -o output
 | 脚本 | 用途 |
 |------|------|
 | scripts/preprocessor.py | 预处理群聊数据并按成员拆分 |
-| scripts/apply_whitelist.py | 为成员应用白名单标记 |
+| scripts/export_adapter.py | 识别并归一化 ChatLab 与新版导出格式 |
